@@ -1,0 +1,28 @@
+:root {
+  --ink: #f2efe9;
+  --ink-soft: rgb(242 239 233 / 62%);
+  --stage: #06070a;
+  --fear: #ff7a3d;
+  --worry: #58c7ff;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: var(--stage);
+  color: var(--ink);
+  font-family: 'Inter Variable', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.stage-canvas {
+  position: fixed !important;
+  inset: 0;
+}

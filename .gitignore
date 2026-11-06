@@ -1,0 +1,14 @@
+node_modules
+dist
+.DS_Store
+*.local
+.env
+.env.*
+!.env.example
+.firebase
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+__pycache__
+*.blend
+*.blend1
