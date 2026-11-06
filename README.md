@@ -12,6 +12,22 @@ npm run dev
 
 Then open http://localhost:5173.
 
+## Presenting and adding text
+
+Number keys 1–4 move between slides. Each slide points the brain at something and has its own text.
+
+Press **I** (or move the mouse and click **Input mode**, bottom right) to add and arrange text:
+
+- **Text box** adds a box to the current slide. Its placeholder starts selected, so just type.
+- Drag a box to move it. Drag the handle on its right edge to set its width; double-click the handle to fit the text again.
+- Double-click a box, or select it and press Enter, to edit the text. Esc stops editing.
+- The toolbar sets the selected box's style (Title, Heading, Body), colour (black, white, grey) and box
+  (clear, or frosted glass). With nothing selected, it sets up the next box.
+- Delete removes the selected box. **Done** or Esc goes back to presenting.
+
+Text boxes are saved in the browser's local storage. They survive a reload, but stay on the computer they
+were made on.
+
 ## The brain model
 
 `public/models/brain.glb` is already built, so you only need this to change the model itself.

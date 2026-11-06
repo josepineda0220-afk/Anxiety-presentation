@@ -4,9 +4,10 @@ import { Color, DoubleSide, FrontSide, LessEqualDepth, MeshBasicMaterial, MeshPh
  * Draw order for clean glass. Translucent folded meshes normally show a mess of overlapping
  * layers. Instead: structures inside the brain draw first, then the shell writes depth only,
  * then the shell draws colour against that depth. Only the front-most surface of the shell
- * ever blends over what is inside.
+ * ever blends over what is inside. The backdrop and its dots draw before all of it, so they sit
+ * behind the brain and still show through the glass.
  */
-export const ORDER = { target: 1, context: 2, shellDepth: 3, shell: 4, effects: 5 } as const
+export const ORDER = { backdrop: -2, dust: -1, target: 1, context: 2, shellDepth: 3, shell: 4, effects: 5 } as const
 
 export interface ShellUniforms {
   uGhost: IUniform<number>
