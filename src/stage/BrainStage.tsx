@@ -3,6 +3,7 @@ import { Canvas } from '@react-three/fiber'
 import { Environment, Lightformer } from '@react-three/drei'
 import { Bloom, EffectComposer, Noise, ToneMapping, Vignette } from '@react-three/postprocessing'
 import { BlendFunction, ToneMappingMode } from 'postprocessing'
+import { Backdrop, BACKDROP } from './Backdrop'
 import { BrainModel } from './BrainModel'
 
 function Lighting() {
@@ -28,7 +29,8 @@ export function BrainStage() {
       camera={{ fov: 26, position: [0, 0, 11], near: 0.5, far: 60 }}
       gl={{ antialias: false, powerPreference: 'high-performance', stencil: false }}
     >
-      <color attach="background" args={['#06070a']} />
+      <color attach="background" args={[BACKDROP.outer]} />
+      <Backdrop />
       <Lighting />
       <Suspense fallback={null}>
         <BrainModel />

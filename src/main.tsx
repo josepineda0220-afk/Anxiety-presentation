@@ -4,28 +4,28 @@ import '@fontsource-variable/inter'
 import '@fontsource/instrument-serif'
 import './styles.css'
 import { BrainStage } from './stage/BrainStage'
-import { useStage } from './stage/focusStore'
-import type { Focus } from './brain/regions'
-
-const VIEWS: Record<string, Focus> = {
-  '1': { regions: [], circuits: [] },
-  '2': { regions: ['amygdala'], circuits: [] },
-  '3': { regions: [], circuits: ['cstc'] },
-  '4': { regions: ['amygdala'], circuits: ['cstc'] },
-}
+import { InputControls } from './deck/InputControls'
+import { TextLayer } from './deck/TextLayer'
+import { isTyping } from './deck/keys'
+import { goToSlide } from './deck/slides'
 
 function App() {
   useEffect(() => {
-    const pick = (key: string) => {
-      const view = VIEWS[key]
-      if (view) useStage.getState().setFocus(view)
+    const onKey = (event: KeyboardEvent) => {
+      // A number typed into a text box is text, not a slide change.
+      if (!isTyping(event.target)) goToSlide(event.key)
     }
-    const onKey = (event: KeyboardEvent) => pick(event.key)
     window.addEventListener('keydown', onKey)
-    pick(new URLSearchParams(location.search).get('view') ?? '1')
+    goToSlide(new URLSearchParams(location.search).get('view') ?? '1')
     return () => window.removeEventListener('keydown', onKey)
   }, [])
-  return <BrainStage />
+  return (
+    <>
+      <BrainStage />
+      <TextLayer />
+      <InputControls />
+    </>
+  )
 }
 
 createRoot(document.getElementById('root')!).render(
