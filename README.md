@@ -14,14 +14,20 @@ Then open http://localhost:5173.
 
 ## Presenting and adding text
 
-Number keys 1–4 move between slides. Each slide points the brain at something and has its own text.
+Right arrow, Space or Page Down goes to the next slide, and left arrow or Page Up goes back, so a presentation
+clicker works. Number keys 1–9 jump straight to a slide. Each slide points the brain at something and has its own
+text.
+
+The Medications section starts with the text in `src/data/medications.ts`.
 
 Press **I** (or move the mouse and click **Input mode**, bottom right) to add and arrange text:
 
 - **Text box** adds a box to the current slide. Its placeholder starts selected, so just type.
-- Drag a box to move it. Drag the handle on its right edge to set its width; double-click the handle to fit the text again.
+- Drag a box to move it. Drag the handle on its right edge to set its width, the one on its bottom edge to set
+  its length, or the corner handle to set both. Double-click a handle to fit the text again. A box can't be made
+  shorter than its text, so nothing gets cut off.
 - Double-click a box, or select it and press Enter, to edit the text. Esc stops editing.
-- The toolbar sets the selected box's style (Title, Heading, Body), colour (black, white, grey) and box
+- The toolbar sets the selected box's style (Title, Heading, Body, Small), colour (black, white, grey) and box
   (clear, or frosted glass). With nothing selected, it sets up the next box.
 - Delete removes the selected box. **Done** or Esc goes back to presenting.
 

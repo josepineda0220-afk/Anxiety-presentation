@@ -14,6 +14,7 @@ globalThis.localStorage = {
 }
 
 const { STARTER_TEXT, placeNewBox, useDeck } = await import('./deckStore')
+const { MEDICATION_SLIDES, SEED_BOXES } = await import('../data/medications')
 
 const deck = () => useDeck.getState()
 const only = () => {
@@ -138,5 +139,41 @@ describe('saving', () => {
     expect(Object.keys(stored).sort()).toEqual(['boxes', 'format'])
     // The box still being emptied is left out.
     expect(stored.boxes).toHaveLength(1)
+  })
+})
+
+describe('the Medications section', () => {
+  it('gives every slide a unique id, a title and some text', () => {
+    const ids = MEDICATION_SLIDES.map((slide) => slide.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    for (const slide of MEDICATION_SLIDES) {
+      expect(slide.title).toBeTruthy()
+      expect(slide.boxes.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('always labels the CSTC loop as a proposed model', () => {
+    const cstc = MEDICATION_SLIDES.find((slide) => slide.title.includes('CSTC'))!
+    expect(cstc.boxes.map((box) => box.text).join(' ')).toMatch(/proposed model/i)
+  })
+
+  it('leaves the brain idle on buspirone, whose site of action is unknown', () => {
+    const buspirone = MEDICATION_SLIDES.find((slide) => slide.title === 'Buspirone')!
+    expect(buspirone.focus).toEqual({ regions: [], circuits: [] })
+  })
+
+  it('starts a new browser with every slide filled in', () => {
+    expect(useDeck.getInitialState().boxes).toEqual(SEED_BOXES)
+  })
+
+  it('adds its slides to a browser that already saved boxes, keeping those boxes', () => {
+    const mine = { id: 'mine', slide: '2', text: 'My notes', x: 0.1, y: 0.1, style: 'body', color: 'white', look: 'clear' }
+    const format = { style: 'heading', color: 'grey', look: 'clear' }
+    const migrated = useDeck.persist.getOptions().migrate!({ boxes: [mine], format }, 1) as {
+      boxes: unknown[]
+      format: unknown
+    }
+    expect(migrated.boxes).toEqual([mine, ...SEED_BOXES])
+    expect(migrated.format).toEqual(format)
   })
 })

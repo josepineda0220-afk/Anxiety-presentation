@@ -1,9 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react'
 import { motion } from 'motion/react'
 import { useDeck, type TextBox } from './deckStore'
-
-/** The narrowest a box can be dragged, in stage units. */
-const MIN_WIDTH = 8
+import { dragSize, fitSize, type ResizeHandle } from './resize'
 
 /** Pixels in one stage unit: 1% of the width of a 16:9 frame fitted in the window. Matches --u. */
 export function unitPx() {
@@ -13,14 +11,36 @@ export function unitPx() {
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), Math.max(min, max))
 
 interface Gesture {
-  kind: 'move' | 'resize'
+  /** The handle being dragged. Left out, the whole box is moving. */
+  handle?: ResizeHandle
   pointerX: number
   pointerY: number
   rect: DOMRect
   moved: boolean
 }
 
-type Live = Partial<Pick<TextBox, 'x' | 'y' | 'width'>>
+type Live = Partial<Pick<TextBox, 'x' | 'y' | 'width' | 'height'>>
+
+const BULLET = /^•\s*/
+
+/** The text when it isn't being typed in. A wrapped bullet lines up under its words, not its dot. */
+function ShownText({ text }: { text: string }) {
+  return (
+    <div className="tb-text">
+      {text.split('\n').map((line, index) =>
+        BULLET.test(line) ? (
+          <div key={index} className="tb-bullet">
+            {line.replace(BULLET, '')}
+          </div>
+        ) : (
+          <div key={index} className="tb-line">
+            {line}
+          </div>
+        ),
+      )}
+    </div>
+  )
+}
 
 /** The caret position under a point, if it falls inside an element. */
 function caretRangeAt(x: number, y: number, within: HTMLElement): Range | null {
@@ -86,20 +106,20 @@ export function TextBoxView({ box }: { box: TextBox }) {
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (!inputMode || event.button !== 0) return
     const target = event.target as HTMLElement
-    const resize = target.dataset.handle === 'width'
+    const handle = target.dataset.handle as ResizeHandle | undefined
     // Inside text that is being edited, a press just places the caret.
-    if (editing && !resize) return
-    // Keeps the caret in the text while the width changes.
-    if (resize) event.preventDefault()
+    if (editing && !handle) return
+    // Keeps the caret in the text while the box changes size.
+    if (handle) event.preventDefault()
     useDeck.getState().select(box.id)
     gesture.current = {
-      kind: resize ? 'resize' : 'move',
+      handle,
       pointerX: event.clientX,
       pointerY: event.clientY,
       rect: boxRef.current!.getBoundingClientRect(),
       moved: false,
     }
-    ;(resize ? target : event.currentTarget).setPointerCapture(event.pointerId)
+    ;(handle ? target : event.currentTarget).setPointerCapture(event.pointerId)
   }
 
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
@@ -110,14 +130,13 @@ export function TextBoxView({ box }: { box: TextBox }) {
     if (!g.moved && Math.hypot(dx, dy) < 3) return
     g.moved = true
     const { innerWidth: width, innerHeight: height } = window
-    if (g.kind === 'move') {
+    if (g.handle) {
+      setLive(dragSize({ handle: g.handle, rect: g.rect, dx, dy, unit: unitPx(), screen: { width, height } }))
+    } else {
       setLive({
         x: clamp(box.x + dx / width, 0, 1 - g.rect.width / width),
         y: clamp(box.y + dy / height, 0, 1 - g.rect.height / height),
       })
-    } else {
-      const unit = unitPx()
-      setLive({ width: clamp(g.rect.width + dx, MIN_WIDTH * unit, width - g.rect.left) / unit })
     }
   }
 
@@ -132,8 +151,9 @@ export function TextBoxView({ box }: { box: TextBox }) {
   const onDoubleClick = (event: MouseEvent<HTMLDivElement>) => {
     if (!inputMode) return
     const deck = useDeck.getState()
-    if ((event.target as HTMLElement).dataset.handle === 'width') {
-      deck.updateBox(box.id, { width: undefined })
+    const handle = (event.target as HTMLElement).dataset.handle as ResizeHandle | undefined
+    if (handle) {
+      deck.updateBox(box.id, fitSize(handle))
       return
     }
     caretAt.current = { x: event.clientX, y: event.clientY }
@@ -155,6 +175,8 @@ export function TextBoxView({ box }: { box: TextBox }) {
         left: `${shown.x * 100}%`,
         top: `${shown.y * 100}%`,
         ...(shown.width !== undefined && { width: `calc(var(--u) * ${shown.width.toFixed(2)})`, maxWidth: 'none' }),
+        // A minimum, so a box always grows to hold its text and nothing is ever cut off.
+        ...(shown.height !== undefined && { minHeight: `calc(var(--u) * ${shown.height.toFixed(2)})` }),
       }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -169,6 +191,7 @@ export function TextBoxView({ box }: { box: TextBox }) {
       <div
         ref={textRef}
         className="tb-text"
+        hidden={!editing}
         contentEditable={editing ? 'plaintext-only' : false}
         spellCheck={editing}
         onInput={(event) => useDeck.getState().updateBox(box.id, { text: event.currentTarget.innerText })}
@@ -178,8 +201,13 @@ export function TextBoxView({ box }: { box: TextBox }) {
           if (document.hasFocus() && deck.editingId === box.id) deck.stopEditing()
         }}
       />
+      {!editing && <ShownText text={box.text} />}
       {inputMode && selected && (
-        <div className="tb-handle" data-handle="width" title="Drag to set the width. Double-click to fit the text." />
+        <>
+          <div className="tb-handle" data-handle="width" title="Drag to set the width. Double-click to fit the text." />
+          <div className="tb-handle" data-handle="height" title="Drag to set the length. Double-click to fit the text." />
+          <div className="tb-handle" data-handle="both" title="Drag to set the length and width. Double-click to fit the text." />
+        </>
       )}
     </motion.div>
   )

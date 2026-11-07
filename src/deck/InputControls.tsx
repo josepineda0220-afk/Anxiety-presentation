@@ -8,6 +8,7 @@ const STYLES: { value: TextStyle; label: string }[] = [
   { value: 'title', label: 'Title' },
   { value: 'heading', label: 'Heading' },
   { value: 'body', label: 'Body' },
+  { value: 'small', label: 'Small' },
 ]
 
 const COLORS: { value: TextColor; label: string }[] = [
@@ -86,7 +87,7 @@ function Toolbar() {
         exit={{ opacity: 0 }}
         transition={{ duration: 0.2 }}
       >
-        Drag a box to move it · Double-click to type · Delete removes it · Esc when done
+        Drag a box to move it · Drag its handles to resize · Double-click to type · Delete removes it · Esc when done
       </motion.p>
       <motion.div
         className="toolbar"
@@ -107,7 +108,7 @@ function Toolbar() {
               type="button"
               className="tool-slide"
               aria-pressed={s.id === slide}
-              title={`Slide ${s.id} (${s.id})`}
+              title={s.title}
               onClick={() => goToSlide(s.id)}
             >
               {s.id}

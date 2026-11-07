@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
+import { SEED_BOXES } from '../data/medications'
 
-export type TextStyle = 'title' | 'heading' | 'body'
+export type TextStyle = 'title' | 'heading' | 'body' | 'small'
 export type TextColor = 'white' | 'grey' | 'black'
 export type BoxLook = 'clear' | 'frosted'
 
@@ -22,6 +23,8 @@ export interface TextBox extends TextFormat {
   y: number
   /** Width in stage units (--u in deck.css). Left out, the box grows with its text up to a limit. */
   width?: number
+  /** Least height in stage units. Longer text still makes the box taller. Left out, it fits the text. */
+  height?: number
 }
 
 /** What a new box says before anything is typed. It starts selected, so typing replaces it. */
@@ -29,6 +32,7 @@ export const STARTER_TEXT: Record<TextStyle, string> = {
   title: 'Title',
   heading: 'Heading',
   body: 'Body text',
+  small: 'Small text',
 }
 
 interface DeckState {
@@ -88,7 +92,7 @@ export const useDeck = create<DeckState>()(
       inputMode: false,
       selectedId: null,
       editingId: null,
-      boxes: [],
+      boxes: SEED_BOXES,
       format: { style: 'body', color: 'white', look: 'clear' },
 
       setSlide: (slide) =>
@@ -142,8 +146,13 @@ export const useDeck = create<DeckState>()(
     }),
     {
       name: 'anxiety-presentation:deck',
-      version: 1,
+      version: 2,
       storage: createJSONStorage(() => localStorage),
+      // Browsers that saved boxes before the Medications section keep them and gain its slides.
+      migrate: (saved, version) => {
+        const state = saved as Pick<DeckState, 'boxes' | 'format'>
+        return version < 2 ? { ...state, boxes: [...state.boxes, ...SEED_BOXES] } : state
+      },
       // Only the slides' content is kept. Where you are and what is selected start fresh.
       partialize: (s) => ({ boxes: s.boxes.filter((b) => b.text.trim()), format: s.format }),
     },
