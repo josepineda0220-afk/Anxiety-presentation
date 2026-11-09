@@ -1,6 +1,17 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
+import { IDLE_FOCUS } from '../brain/regions'
 import { SEED_BOXES } from '../data/medications'
+import {
+  ALL_SEED_BOXES,
+  NON_MEDICATION_SEED_BOXES,
+  SEED_SECTIONS,
+  makeTemplateSlideBoxes,
+  type BackdropTheme,
+  type Section,
+  type SlideSpec,
+} from '../data/sections'
+import { useStage } from '../stage/focusStore'
 
 export type TextStyle = 'title' | 'heading' | 'body' | 'small'
 export type TextColor = 'white' | 'grey' | 'black'
@@ -37,6 +48,7 @@ export const STARTER_TEXT: Record<TextStyle, string> = {
 
 interface DeckState {
   slide: string
+  sections: Section[]
   inputMode: boolean
   selectedId: string | null
   editingId: string | null
@@ -53,6 +65,18 @@ interface DeckState {
   stopEditing: () => void
   /** Restyles the selected box, if any, and makes this the format for new boxes. */
   applyFormat: (patch: Partial<TextFormat>) => void
+  /** Sets the background color theme for a section and updates the stage if active. */
+  setSectionBackdrop: (sectionId: string, backdrop: BackdropTheme) => void
+  /** Renames a section title. */
+  renameSection: (sectionId: string, title: string) => void
+  /** Appends a new section with starter template boxes and switches to it. */
+  addSection: (title?: string) => Section
+  /** Removes a section and its slides/boxes (when more than one section exists). */
+  removeSection: (sectionId: string) => void
+  /** Adds a new template slide to a section (defaults to the active section) and switches to it. */
+  addSlide: (sectionId?: string) => SlideSpec | null
+  /** Removes a slide from its section (when the section has more than one slide). */
+  removeSlide: (slideId?: string) => void
 }
 
 const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
@@ -85,14 +109,19 @@ function finishEditing(state: DeckState): Partial<DeckState> {
   }
 }
 
+function findSectionForSlide(sections: Section[], slideId: string): Section | undefined {
+  return sections.find((sec) => sec.slides.some((sl) => sl.id === slideId))
+}
+
 export const useDeck = create<DeckState>()(
   persist(
-    (set) => ({
-      slide: '1',
+    (set, get) => ({
+      slide: SEED_SECTIONS[0].slides[0].id,
+      sections: SEED_SECTIONS,
       inputMode: false,
       selectedId: null,
       editingId: null,
-      boxes: SEED_BOXES,
+      boxes: ALL_SEED_BOXES,
       format: { style: 'body', color: 'white', look: 'clear' },
 
       setSlide: (slide) =>
@@ -143,18 +172,196 @@ export const useDeck = create<DeckState>()(
             boxes: s.boxes.map((b) => (b === selected ? { ...b, style, color, look } : b)),
           }
         }),
+
+      setSectionBackdrop: (sectionId, backdrop) =>
+        set((s) => {
+          const sections = s.sections.map((sec) => (sec.id === sectionId ? { ...sec, backdrop } : sec))
+          const activeSec = findSectionForSlide(sections, s.slide)
+          if (activeSec?.id === sectionId) {
+            useStage.getState().setBackdrop(backdrop)
+          }
+          return { sections }
+        }),
+
+      renameSection: (sectionId, title) =>
+        set((s) => {
+          const trimmed = title.trim()
+          if (!trimmed) return {}
+          return {
+            sections: s.sections.map((sec) => (sec.id === sectionId ? { ...sec, title: trimmed } : sec)),
+          }
+        }),
+
+      addSection: (customTitle) => {
+        const s = get()
+        const cleaned = finishEditing(s)
+        const baseBoxes = cleaned.boxes ?? s.boxes
+        const activeSec = findSectionForSlide(s.sections, s.slide)
+        const backdrop: BackdropTheme = activeSec?.backdrop ?? 'blue'
+        const sectionTitle = customTitle?.trim() || `New Section ${s.sections.length + 1}`
+        const sectionId = `sec-${newId()}`
+        const slideId = `slide-${newId()}`
+        const slideSpec: SlideSpec = {
+          id: slideId,
+          title: `${sectionTitle} — Overview`,
+          focus: IDLE_FOCUS,
+        }
+        const newSection: Section = {
+          id: sectionId,
+          title: sectionTitle,
+          backdrop,
+          slides: [slideSpec],
+        }
+        const templateBoxes: TextBox[] = makeTemplateSlideBoxes(sectionTitle, 'Overview & key points').map((box) => ({
+          ...box,
+          id: newId(),
+          slide: slideId,
+        }))
+
+        set({
+          ...cleaned,
+          sections: [...s.sections, newSection],
+          boxes: [...baseBoxes, ...templateBoxes],
+          slide: slideId,
+          selectedId: null,
+          editingId: null,
+        })
+        useStage.getState().setFocus(slideSpec.focus)
+        useStage.getState().setBackdrop(backdrop)
+        return newSection
+      },
+
+      removeSection: (sectionId) =>
+        set((s) => {
+          if (s.sections.length <= 1) return {}
+          const index = s.sections.findIndex((sec) => sec.id === sectionId)
+          if (index === -1) return {}
+          const removed = s.sections[index]
+          const removedSlideIds = new Set(removed.slides.map((sl) => sl.id))
+          const cleaned = finishEditing(s)
+          const baseBoxes = cleaned.boxes ?? s.boxes
+          const sections = s.sections.filter((sec) => sec.id !== sectionId)
+          const boxes = baseBoxes.filter((b) => !removedSlideIds.has(b.slide))
+
+          if (removedSlideIds.has(s.slide)) {
+            const nextSection = sections[Math.min(index, sections.length - 1)]
+            const nextSlide = nextSection.slides[0]
+            useStage.getState().setFocus(nextSlide.focus)
+            useStage.getState().setBackdrop(nextSection.backdrop)
+            return {
+              ...cleaned,
+              sections,
+              boxes,
+              slide: nextSlide.id,
+              selectedId: null,
+              editingId: null,
+            }
+          }
+
+          return { ...cleaned, sections, boxes }
+        }),
+
+      addSlide: (sectionId) => {
+        const s = get()
+        const cleaned = finishEditing(s)
+        const baseBoxes = cleaned.boxes ?? s.boxes
+        const targetSec = sectionId
+          ? s.sections.find((sec) => sec.id === sectionId)
+          : findSectionForSlide(s.sections, s.slide)
+        if (!targetSec) return null
+
+        const slideNumber = targetSec.slides.length + 1
+        const slideId = `slide-${newId()}`
+        const newSlide: SlideSpec = {
+          id: slideId,
+          title: `${targetSec.title} (${slideNumber})`,
+          focus: IDLE_FOCUS,
+        }
+        const templateBoxes: TextBox[] = makeTemplateSlideBoxes(
+          targetSec.title,
+          `Subtopic ${slideNumber}`,
+        ).map((box) => ({
+          ...box,
+          id: newId(),
+          slide: slideId,
+        }))
+
+        const sections = s.sections.map((sec) =>
+          sec.id === targetSec.id ? { ...sec, slides: [...sec.slides, newSlide] } : sec,
+        )
+
+        set({
+          ...cleaned,
+          sections,
+          boxes: [...baseBoxes, ...templateBoxes],
+          slide: slideId,
+          selectedId: null,
+          editingId: null,
+        })
+        useStage.getState().setFocus(newSlide.focus)
+        useStage.getState().setBackdrop(targetSec.backdrop)
+        return newSlide
+      },
+
+      removeSlide: (slideId) =>
+        set((s) => {
+          const targetSlideId = slideId ?? s.slide
+          const section = findSectionForSlide(s.sections, targetSlideId)
+          if (!section || section.slides.length <= 1) return {}
+
+          const slideIndex = section.slides.findIndex((sl) => sl.id === targetSlideId)
+          const remainingSlides = section.slides.filter((sl) => sl.id !== targetSlideId)
+          const cleaned = finishEditing(s)
+          const baseBoxes = cleaned.boxes ?? s.boxes
+          const boxes = baseBoxes.filter((b) => b.slide !== targetSlideId)
+          const sections = s.sections.map((sec) =>
+            sec.id === section.id ? { ...sec, slides: remainingSlides } : sec,
+          )
+
+          if (s.slide === targetSlideId) {
+            const nextSlide = remainingSlides[Math.min(slideIndex, remainingSlides.length - 1)]
+            useStage.getState().setFocus(nextSlide.focus)
+            useStage.getState().setBackdrop(section.backdrop)
+            return {
+              ...cleaned,
+              sections,
+              boxes,
+              slide: nextSlide.id,
+              selectedId: null,
+              editingId: null,
+            }
+          }
+
+          return { ...cleaned, sections, boxes }
+        }),
     }),
     {
       name: 'anxiety-presentation:deck',
-      version: 2,
+      version: 3,
       storage: createJSONStorage(() => localStorage),
-      // Browsers that saved boxes before the Medications section keep them and gain its slides.
+      // Browsers that saved boxes in earlier versions keep them and gain the full presentation sections.
       migrate: (saved, version) => {
-        const state = saved as Pick<DeckState, 'boxes' | 'format'>
-        return version < 2 ? { ...state, boxes: [...state.boxes, ...SEED_BOXES] } : state
+        const state = saved as Partial<Pick<DeckState, 'sections' | 'boxes' | 'format'>>
+        let boxes = state.boxes ?? []
+        if (version < 2) {
+          boxes = [...boxes, ...SEED_BOXES]
+        }
+        if (version < 3) {
+          const existingIds = new Set(boxes.map((b) => b.id))
+          boxes = [...boxes, ...NON_MEDICATION_SEED_BOXES.filter((b) => !existingIds.has(b.id))]
+        }
+        return {
+          ...state,
+          sections: state.sections ?? SEED_SECTIONS,
+          boxes,
+        }
       },
-      // Only the slides' content is kept. Where you are and what is selected start fresh.
-      partialize: (s) => ({ boxes: s.boxes.filter((b) => b.text.trim()), format: s.format }),
+      // Only the sections and slides' content are kept. Where you are and what is selected start fresh.
+      partialize: (s) => ({
+        sections: s.sections,
+        boxes: s.boxes.filter((b) => b.text.trim()),
+        format: s.format,
+      }),
     },
   ),
 )

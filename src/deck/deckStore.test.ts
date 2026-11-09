@@ -15,6 +15,9 @@ globalThis.localStorage = {
 
 const { STARTER_TEXT, placeNewBox, useDeck } = await import('./deckStore')
 const { MEDICATION_SLIDES, SEED_BOXES } = await import('../data/medications')
+const { ALL_SEED_BOXES, NON_MEDICATION_SEED_BOXES, SEED_SECTIONS } = await import('../data/sections')
+const { getAllSlides, goToSection, goToSlide, stepSlide } = await import('./slides')
+const { useStage } = await import('../stage/focusStore')
 
 const deck = () => useDeck.getState()
 const only = () => {
@@ -24,12 +27,18 @@ const only = () => {
 
 beforeEach(() => {
   useDeck.setState({
-    slide: '1',
+    slide: '1-1',
+    sections: structuredClone(SEED_SECTIONS),
     inputMode: true,
     selectedId: null,
     editingId: null,
     boxes: [],
     format: { style: 'body', color: 'white', look: 'clear' },
+  })
+  useStage.setState({
+    focus: { regions: [], circuits: [] },
+    backdrop: 'blue',
+    shift: 0.17,
   })
 })
 
@@ -121,6 +130,7 @@ describe('formatting', () => {
 
 describe('switching slides', () => {
   it('keeps every slide’s boxes but clears the selection', () => {
+    deck().setSlide('1')
     deck().addBox()
     deck().setSlide('2')
     deck().addBox()
@@ -131,14 +141,79 @@ describe('switching slides', () => {
 })
 
 describe('saving', () => {
-  it('keeps the boxes and format, not the mode or selection', () => {
+  it('keeps the sections, boxes and format, not the mode or selection', () => {
     deck().addBox()
     deck().addBox()
     deck().updateBox(deck().boxes[1].id, { text: '' })
     const stored = JSON.parse(localStorage.getItem('anxiety-presentation:deck')!).state
-    expect(Object.keys(stored).sort()).toEqual(['boxes', 'format'])
+    expect(Object.keys(stored).sort()).toEqual(['boxes', 'format', 'sections'])
     // The box still being emptied is left out.
     expect(stored.boxes).toHaveLength(1)
+  })
+})
+
+describe('presentation sections and backdrop themes', () => {
+  it('starts with all 9 outline sections in order', () => {
+    expect(SEED_SECTIONS.map((s) => s.title)).toEqual([
+      'Outline of Presentation',
+      'History',
+      'Epidemiology',
+      'Signs & Symptoms',
+      'DSM-5',
+      'Predisposing factors',
+      'Comorbidity',
+      'Medications',
+      'Milieu Management',
+    ])
+  })
+
+  it('switches the stage backdrop when a section’s color is changed or navigated to', () => {
+    deck().setSectionBackdrop('sec-2', 'purple')
+    expect(useStage.getState().backdrop).toBe('blue')
+
+    goToSection('sec-2')
+    expect(deck().slide).toBe('2-1')
+    expect(useStage.getState().backdrop).toBe('purple')
+
+    // Stepping back into Section 1 transitions back to blue.
+    stepSlide(-1)
+    expect(deck().slide).toBe('1-1')
+    expect(useStage.getState().backdrop).toBe('blue')
+  })
+
+  it('adds and removes sections along with their template boxes', () => {
+    const added = deck().addSection('Case Study')
+    expect(deck().sections).toHaveLength(10)
+    expect(added.title).toBe('Case Study')
+    expect(deck().slide).toBe(added.slides[0].id)
+    expect(deck().boxes.filter((b) => b.slide === added.slides[0].id).length).toBeGreaterThan(0)
+
+    deck().removeSection(added.id)
+    expect(deck().sections).toHaveLength(9)
+    expect(deck().boxes.filter((b) => b.slide === added.slides[0].id)).toHaveLength(0)
+    expect(deck().slide).toBe('9-1')
+  })
+
+  it('adds and removes slides within a section, keeping at least 1 slide per section', () => {
+    goToSection('sec-2')
+    const added = deck().addSlide('sec-2')!
+    expect(deck().sections.find((s) => s.id === 'sec-2')!.slides).toHaveLength(3)
+    expect(deck().slide).toBe(added.id)
+
+    deck().removeSlide(added.id)
+    expect(deck().sections.find((s) => s.id === 'sec-2')!.slides).toHaveLength(2)
+
+    // Section 1 only has 1 slide; removeSlide will not leave a section empty.
+    goToSection('sec-1')
+    deck().removeSlide('1-1')
+    expect(deck().sections.find((s) => s.id === 'sec-1')!.slides).toHaveLength(1)
+  })
+
+  it('steps seamlessly across section boundaries', () => {
+    goToSlide('1-1')
+    stepSlide(1)
+    expect(deck().slide).toBe('2-1')
+    expect(getAllSlides().length).toBeGreaterThan(20)
   })
 })
 
@@ -162,18 +237,21 @@ describe('the Medications section', () => {
     expect(buspirone.focus).toEqual({ regions: [], circuits: [] })
   })
 
-  it('starts a new browser with every slide filled in', () => {
-    expect(useDeck.getInitialState().boxes).toEqual(SEED_BOXES)
+  it('starts a new browser with every slide filled in across all sections', () => {
+    expect(useDeck.getInitialState().boxes).toEqual(ALL_SEED_BOXES)
+    expect(useDeck.getInitialState().sections).toEqual(SEED_SECTIONS)
   })
 
-  it('adds its slides to a browser that already saved boxes, keeping those boxes', () => {
+  it('adds its slides and sections to a browser that already saved boxes, keeping those boxes', () => {
     const mine = { id: 'mine', slide: '2', text: 'My notes', x: 0.1, y: 0.1, style: 'body', color: 'white', look: 'clear' }
     const format = { style: 'heading', color: 'grey', look: 'clear' }
     const migrated = useDeck.persist.getOptions().migrate!({ boxes: [mine], format }, 1) as {
+      sections: unknown[]
       boxes: unknown[]
       format: unknown
     }
-    expect(migrated.boxes).toEqual([mine, ...SEED_BOXES])
+    expect(migrated.boxes).toEqual([mine, ...SEED_BOXES, ...NON_MEDICATION_SEED_BOXES])
+    expect(migrated.sections).toEqual(SEED_SECTIONS)
     expect(migrated.format).toEqual(format)
   })
 })

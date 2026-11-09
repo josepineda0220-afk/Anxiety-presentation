@@ -4,10 +4,11 @@ import '@fontsource-variable/inter'
 import '@fontsource/instrument-serif'
 import './styles.css'
 import { BrainStage } from './stage/BrainStage'
+import { useDeck } from './deck/deckStore'
 import { InputControls } from './deck/InputControls'
 import { TextLayer } from './deck/TextLayer'
 import { isTyping } from './deck/keys'
-import { goToSlide, stepSlide } from './deck/slides'
+import { goToSection, goToSlide, stepSlide } from './deck/slides'
 
 function App() {
   useEffect(() => {
@@ -19,10 +20,11 @@ function App() {
       else if (event.key === 'ArrowLeft' || event.key === 'PageUp') stepSlide(-1)
       // Space presses a focused button, so it only moves on when there isn't one.
       else if (event.key === ' ' && !(event.target instanceof HTMLButtonElement)) stepSlide(1)
-      else goToSlide(event.key)
+      else if (/^[1-9]$/.test(event.key)) goToSection(Number(event.key))
     }
     window.addEventListener('keydown', onKey)
-    goToSlide(new URLSearchParams(location.search).get('view') ?? '1')
+    const initialView = new URLSearchParams(location.search).get('view')
+    goToSlide(initialView ?? useDeck.getState().slide)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
   return (

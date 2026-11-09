@@ -1,8 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
+import type { BackdropTheme } from '../data/sections'
 import { useDeck, type BoxLook, type TextColor, type TextStyle } from './deckStore'
 import { useDeckKeys } from './keys'
-import { goToSlide, SLIDES } from './slides'
+import { goToSection, goToSlide } from './slides'
 
 const STYLES: { value: TextStyle; label: string }[] = [
   { value: 'title', label: 'Title' },
@@ -20,6 +21,11 @@ const COLORS: { value: TextColor; label: string }[] = [
 const LOOKS: { value: BoxLook; label: string }[] = [
   { value: 'clear', label: 'Clear' },
   { value: 'frosted', label: 'Frosted' },
+]
+
+const BACKDROPS: { value: BackdropTheme; label: string }[] = [
+  { value: 'blue', label: 'Blue' },
+  { value: 'purple', label: 'Lavender' },
 ]
 
 export function InputControls() {
@@ -72,11 +78,24 @@ function EnterButton() {
 
 function Toolbar() {
   const slide = useDeck((s) => s.slide)
+  const sections = useDeck((s) => s.sections)
   const selected = useDeck((s) => s.boxes.find((box) => box.id === s.selectedId))
   const format = useDeck((s) => s.format)
   const deck = useDeck.getState()
+
+  const activeSection = sections.find((sec) => sec.slides.some((sl) => sl.id === slide)) ?? sections[0]
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [draftTitle, setDraftTitle] = useState('')
+
   // With a box selected the controls show and change that box. Otherwise they set up the next one.
   const shown = selected ?? format
+
+  const commitRename = () => {
+    if (renamingId && draftTitle.trim()) {
+      deck.renameSection(renamingId, draftTitle)
+    }
+    setRenamingId(null)
+  }
 
   return (
     <div className="toolbar-dock">
@@ -87,8 +106,110 @@ function Toolbar() {
         exit={{ opacity: 0 }}
         transition={{ duration: 0.2 }}
       >
-        Drag a box to move it · Drag its handles to resize · Double-click to type · Delete removes it · Esc when done
+        Drag a box to move it · Drag its handles to resize · Double-click a box or section tab to edit text · Esc when done
       </motion.p>
+
+      <motion.div
+        className="toolbar section-toolbar"
+        role="toolbar"
+        aria-label="Sections and background"
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 14 }}
+        transition={{ duration: 0.2, ease: 'easeOut' }}
+        onMouseDown={(event) => {
+          if (!(event.target instanceof HTMLInputElement)) event.preventDefault()
+        }}
+      >
+        <div className="tool-group section-tabs" aria-label="Sections">
+          <span className="tool-label">Section</span>
+          {sections.map((sec, index) => {
+            const isActive = sec.id === activeSection?.id
+            if (renamingId === sec.id) {
+              return (
+                <input
+                  key={sec.id}
+                  className="section-rename-input"
+                  value={draftTitle}
+                  autoFocus
+                  onChange={(e) => setDraftTitle(e.target.value)}
+                  onBlur={commitRename}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commitRename()
+                    else if (e.key === 'Escape') setRenamingId(null)
+                  }}
+                />
+              )
+            }
+            return (
+              <button
+                key={sec.id}
+                type="button"
+                className="tool-section"
+                aria-pressed={isActive}
+                title={`${index + 1}. ${sec.title} (double-click to rename)`}
+                onClick={() => goToSection(sec.id)}
+                onDoubleClick={() => {
+                  setRenamingId(sec.id)
+                  setDraftTitle(sec.title)
+                }}
+              >
+                <span className="section-theme-dot" data-backdrop={sec.backdrop} />
+                <span>
+                  {index + 1}. {sec.title}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+
+        <span className="tool-sep" />
+
+        <div className="tool-group" aria-label="Manage sections">
+          <button
+            type="button"
+            className="tool-action"
+            title="Add new section"
+            onClick={() => deck.addSection()}
+          >
+            <Icon d="M8 3v10 M3 8h10" />
+            Section
+          </button>
+          <button
+            type="button"
+            className="tool-icon"
+            disabled={sections.length <= 1}
+            title="Remove current section"
+            aria-label="Remove current section"
+            onClick={() => activeSection && deck.removeSection(activeSection.id)}
+          >
+            <Icon d="M3 8h10" />
+          </button>
+        </div>
+
+        <span className="tool-sep" />
+
+        {activeSection && (
+          <div className="tool-group" role="radiogroup" aria-label="Section background">
+            <span className="tool-label">Backdrop</span>
+            {BACKDROPS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                role="radio"
+                aria-checked={activeSection.backdrop === option.value}
+                className="tool-backdrop"
+                title={`Set "${activeSection.title}" background to ${option.label}`}
+                onClick={() => deck.setSectionBackdrop(activeSection.id, option.value)}
+              >
+                <span className="swatch backdrop-swatch" data-backdrop={option.value} />
+                {option.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </motion.div>
+
       <motion.div
         className="toolbar"
         role="toolbar"
@@ -100,21 +221,42 @@ function Toolbar() {
         // A click here must not pull focus out of a box that is being typed in.
         onMouseDown={(event) => event.preventDefault()}
       >
-        <div className="tool-group" aria-label="Slide">
-          <span className="tool-label">Slide</span>
-          {SLIDES.map((s) => (
+        {activeSection && (
+          <div className="tool-group" aria-label="Slide">
+            <span className="tool-label">Slide</span>
+            {activeSection.slides.map((s, idx) => (
+              <button
+                key={s.id}
+                type="button"
+                className="tool-slide"
+                aria-pressed={s.id === slide}
+                title={s.title}
+                onClick={() => goToSlide(s.id)}
+              >
+                {idx + 1}
+              </button>
+            ))}
             <button
-              key={s.id}
               type="button"
-              className="tool-slide"
-              aria-pressed={s.id === slide}
-              title={s.title}
-              onClick={() => goToSlide(s.id)}
+              className="tool-icon"
+              title="Add slide to this section"
+              aria-label="Add slide to this section"
+              onClick={() => deck.addSlide(activeSection.id)}
             >
-              {s.id}
+              <Icon d="M8 3.5v9 M3.5 8h9" />
             </button>
-          ))}
-        </div>
+            <button
+              type="button"
+              className="tool-icon"
+              disabled={activeSection.slides.length <= 1}
+              title="Remove current slide from this section"
+              aria-label="Remove current slide from this section"
+              onClick={() => deck.removeSlide(slide)}
+            >
+              <Icon d="M3.5 8h9" />
+            </button>
+          </div>
+        )}
 
         <span className="tool-sep" />
 

@@ -1,21 +1,37 @@
 import { useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
+import { easing } from 'maath'
 import { AdditiveBlending, BufferAttribute, BufferGeometry, Color, ShaderMaterial, Vector2 } from 'three'
+import type { BackdropTheme } from '../data/sections'
+import { useStage } from './focusStore'
 import { ORDER } from './materials'
 
 /**
- * The space behind the brain: a deep blue wash that lifts slightly behind the brain, and a field
+ * The space behind the brain: a deep wash that lifts slightly behind the brain, and a field
  * of tiny dots drifting toward the viewer at many depths, so the background reads as deep.
  *
  * Every colour here passes through the ACES tone-mapping pass, which crushes dark values hard.
- * The hex values below are what it takes to come out the other side as the blues in the comments.
+ * The hex values below are what it takes to come out the other side as rich blue or purple/lavender.
  */
-export const BACKDROP = {
-  /** Renders as #10255a, right behind the brain. */
-  inner: '#26355f',
-  /** Renders as #081430, toward the edges, before the vignette darkens the corners. */
-  outer: '#1b2640',
+export const BACKDROP_PALETTES: Record<BackdropTheme, { inner: string; outer: string }> = {
+  blue: {
+    /** Renders as #10255a, right behind the brain. */
+    inner: '#26355f',
+    /** Renders as #081430, toward the edges, before the vignette darkens the corners. */
+    outer: '#1b2640',
+  },
+  purple: {
+    /** Deep lavender glow right behind the brain. */
+    inner: '#432c68',
+    /** Deep plum-violet toward the edges. */
+    outer: '#271a42',
+  },
 }
+
+export const BACKDROP = BACKDROP_PALETTES.blue
+
+/** Seconds for the backdrop wash to crossfade when switching between blue and purple sections. */
+const BACKDROP_SETTLE = 0.85
 
 /** Where the dots live, in world units. The brain spans about ±2.3 as it turns. */
 const DUST = {
@@ -136,12 +152,13 @@ export function Backdrop() {
     const geometry = new BufferGeometry()
     // One triangle that covers the whole screen.
     geometry.setAttribute('position', new BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3))
+    const initial = BACKDROP_PALETTES[useStage.getState().backdrop]
     const material = new ShaderMaterial({
       vertexShader: backdropVertex,
       fragmentShader: backdropFragment,
       uniforms: {
-        uInner: { value: new Color(BACKDROP.inner) },
-        uOuter: { value: new Color(BACKDROP.outer) },
+        uInner: { value: new Color(initial.inner) },
+        uOuter: { value: new Color(initial.outer) },
         uFocus: { value: new Vector2(0.5, 0.5) },
         uAspect: { value: 1 },
       },
@@ -153,8 +170,18 @@ export function Backdrop() {
 
   const dust = useMemo(createDust, [])
 
-  useFrame((state) => {
-    const { camera, size, gl, clock } = state
+  useFrame((state, delta) => {
+    const { camera, size, gl, clock, scene } = state
+    const dt = Math.min(delta, 1 / 20)
+    const palette = BACKDROP_PALETTES[useStage.getState().backdrop]
+
+    // Gradually crossfade the inner and outer wash colours when moving between differently themed sections.
+    easing.dampC(wash.material.uniforms.uInner.value, palette.inner, BACKDROP_SETTLE, dt)
+    easing.dampC(wash.material.uniforms.uOuter.value, palette.outer, BACKDROP_SETTLE, dt)
+    if (scene.background instanceof Color) {
+      easing.dampC(scene.background, palette.outer, BACKDROP_SETTLE, dt)
+    }
+
     // Centre the glow on the brain, which the stage slides sideways with a camera view offset.
     const view = camera.view
     wash.material.uniforms.uFocus.value.x = view?.enabled ? 0.5 - view.offsetX / view.width : 0.5
