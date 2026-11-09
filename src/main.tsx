@@ -9,9 +9,11 @@ import { InputControls } from './deck/InputControls'
 import { TextLayer } from './deck/TextLayer'
 import { isTyping } from './deck/keys'
 import { goToSection, goToSlide, stepSlide } from './deck/slides'
+import { startCloudSync } from './sync/supabase'
 
 function App() {
   useEffect(() => {
+    const stopSync = startCloudSync()
     const onKey = (event: KeyboardEvent) => {
       // A key pressed in a text box is text, not a slide change.
       if (isTyping(event.target) || event.metaKey || event.ctrlKey || event.altKey) return
@@ -25,7 +27,10 @@ function App() {
     window.addEventListener('keydown', onKey)
     const initialView = new URLSearchParams(location.search).get('view')
     goToSlide(initialView ?? useDeck.getState().slide)
-    return () => window.removeEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      stopSync()
+    }
   }, [])
   return (
     <>

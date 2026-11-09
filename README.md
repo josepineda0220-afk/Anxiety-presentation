@@ -3,7 +3,7 @@
 An interactive group presentation for a nursing mental health course. A 3D brain moves to show
 the region each slide is about, and turns to glass to reveal structures deep inside it.
 
-## Run it
+## Run it locally
 
 ```bash
 npm install
@@ -12,27 +12,45 @@ npm run dev
 
 Then open http://localhost:5173.
 
-## Presenting and adding text
+## Presenting and editing slides
 
-Right arrow, Space or Page Down goes to the next slide, and left arrow or Page Up goes back, so a presentation
-clicker works. Number keys 1–9 jump straight to a slide. Each slide points the brain at something and has its own
-text.
+- **ArrowRight**, **Space**, or **PageDown** steps forward; **ArrowLeft** or **PageUp** steps back.
+- Number keys **1–9** jump directly to Sections 1–9.
+- Press **I** (or move the mouse and click **Input mode** at the bottom right) and enter the team password
+  (default: `nursing2026`, configurable via `VITE_EDIT_PASSWORD`) to unlock editing:
+  - Switch between sections in the top bar, double-click a section tab to rename it, or use **+ Section** / **−** to add or remove sections.
+  - Toggle each section's **Backdrop** between **Blue** and **Lavender** (the 3D background smoothly crossfades when moving between sections).
+  - Add or remove slides within a section using **+** / **−** next to the slide numbers.
+  - Click **Text box** to add text, drag to position, drag handles to resize, and double-click to edit.
+  - Click the lock icon to re-lock Input Mode, or **Done** (`Esc`) to return to presenting.
 
-The Medications section starts with the text in `src/data/medications.ts`.
+## Cloud Sync (Supabase), Password Gate & End-to-End Encryption (E2EE)
 
-Press **I** (or move the mouse and click **Input mode**, bottom right) to add and arrange text:
+All edits are cached locally and, when Supabase is configured, encrypted client-side in the browser using
+**Web Crypto (`PBKDF2` + `AES-256-GCM`)** before being sent to Supabase over HTTPS. Supabase only ever stores
+opaque `ciphertext`, `iv`, and `salt`. Database writes are gated by a Postgres `SECURITY DEFINER` RPC that
+verifies a cryptographic token derived from the team password.
 
-- **Text box** adds a box to the current slide. Its placeholder starts selected, so just type.
-- Drag a box to move it. Drag the handle on its right edge to set its width, the one on its bottom edge to set
-  its length, or the corner handle to set both. Double-click a handle to fit the text again. A box can't be made
-  shorter than its text, so nothing gets cut off.
-- Double-click a box, or select it and press Enter, to edit the text. Esc stops editing.
-- The toolbar sets the selected box's style (Title, Heading, Body, Small), colour (black, white, grey) and box
-  (clear, or frosted glass). With nothing selected, it sets up the next box.
-- Delete removes the selected box. **Done** or Esc goes back to presenting.
+### 1. Set up Supabase
 
-Text boxes are saved in the browser's local storage. They survive a reload, but stay on the computer they
-were made on.
+1. Create a free project at [supabase.com](https://supabase.com).
+2. Open the **SQL Editor** in your Supabase dashboard, paste the contents of [`supabase/schema.sql`](supabase/schema.sql), and click **Run**.
+3. Copy `.env.example` to `.env` and fill in your values:
+
+```bash
+cp .env.example .env
+```
+
+- `VITE_SUPABASE_URL` & `VITE_SUPABASE_ANON_KEY`: from **Project Settings → API**.
+- `VITE_EDIT_PASSWORD`: the password your team will type when unlocking Input Mode.
+- `VITE_DECK_ENCRYPTION_KEY`: a secret passphrase used to derive the 256-bit AES-GCM encryption key.
+
+### 2. Deploy with Automatic HTTPS
+
+Both **Vercel** ([`vercel.json`](vercel.json)) and **Cloudflare Pages / Netlify** ([`public/_headers`](public/_headers)) are preconfigured with automatic HTTPS and `Strict-Transport-Security` (HSTS) headers:
+
+- **Vercel**: Import the Git repository at [vercel.com/new](https://vercel.com/new), add the environment variables from `.env`, and click **Deploy**.
+- **Cloudflare Pages**: Connect the repository in Cloudflare Pages with build command `npm run build`, output directory `dist`, and add the environment variables from `.env`.
 
 ## The brain model
 

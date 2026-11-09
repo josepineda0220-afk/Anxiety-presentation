@@ -10,8 +10,8 @@ export function isTyping(target: EventTarget | null) {
 }
 
 /**
- * I toggles input mode. In input mode: Esc steps back out (stop typing, then deselect, then leave),
- * Enter edits the selected box, and Delete or Backspace removes it.
+ * I toggles input mode (opening the password gate if locked). In input mode: Esc steps back out
+ * (stop typing, then deselect, then leave), Enter edits the selected box, and Delete or Backspace removes it.
  */
 export function useDeckKeys() {
   useEffect(() => {
@@ -19,7 +19,9 @@ export function useDeckKeys() {
       const deck = useDeck.getState()
 
       if (event.key === 'Escape') {
-        if (deck.editingId) {
+        if (deck.promptingPassword) {
+          deck.cancelPasswordPrompt()
+        } else if (deck.editingId) {
           deck.stopEditing()
           if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
         } else if (deck.selectedId) deck.select(null)
@@ -30,7 +32,8 @@ export function useDeckKeys() {
       if (isTyping(event.target) || event.metaKey || event.ctrlKey || event.altKey) return
 
       if (event.key === 'i' || event.key === 'I') {
-        deck.setInputMode(!deck.inputMode)
+        if (deck.inputMode) deck.setInputMode(false)
+        else deck.requestInputMode()
         return
       }
 

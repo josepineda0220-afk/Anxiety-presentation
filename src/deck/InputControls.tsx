@@ -1,8 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import type { BackdropTheme } from '../data/sections'
+import { pushDeckToCloud, useSyncStatus } from '../sync/supabase'
 import { useDeck, type BoxLook, type TextColor, type TextStyle } from './deckStore'
 import { useDeckKeys } from './keys'
+import { PasswordGate } from './PasswordGate'
 import { goToSection, goToSlide } from './slides'
 
 const STYLES: { value: TextStyle; label: string }[] = [
@@ -30,10 +32,12 @@ const BACKDROPS: { value: BackdropTheme; label: string }[] = [
 
 export function InputControls() {
   const inputMode = useDeck((s) => s.inputMode)
+  const promptingPassword = useDeck((s) => s.promptingPassword)
   useDeckKeys()
   return (
     <>
       {!inputMode && <EnterButton />}
+      <AnimatePresence>{promptingPassword && <PasswordGate key="password-gate" />}</AnimatePresence>
       <AnimatePresence>{inputMode && <Toolbar key="toolbar" />}</AnimatePresence>
     </>
   )
@@ -62,16 +66,50 @@ function usePointerActive(ms: number) {
 
 function EnterButton() {
   const active = usePointerActive(2500)
+  const unlocked = useDeck((s) => s.unlocked)
   return (
     <button
       type="button"
       className="input-toggle"
       data-active={active || undefined}
       title="Input mode (I)"
-      onClick={() => useDeck.getState().setInputMode(true)}
+      onClick={() => useDeck.getState().requestInputMode()}
     >
-      <Icon d="M10.6 2.6l2.8 2.8L5.2 13.6H2.4v-2.8z M9 4.2l2.8 2.8" />
+      {unlocked ? (
+        <Icon d="M10.6 2.6l2.8 2.8L5.2 13.6H2.4v-2.8z M9 4.2l2.8 2.8" />
+      ) : (
+        <Icon d="M4.5 7V5.2a3.5 3.5 0 0 1 7 0V7 M3.5 7h9v6.5h-9z" />
+      )}
       Input mode
+    </button>
+  )
+}
+
+function SyncBadge() {
+  const status = useSyncStatus((s) => s.status)
+  const errorMessage = useSyncStatus((s) => s.errorMessage)
+
+  const label =
+    status === 'synced'
+      ? 'E2EE Synced'
+      : status === 'saving'
+        ? 'Encrypting…'
+        : status === 'connecting'
+          ? 'Connecting…'
+          : status === 'error'
+            ? 'Sync error'
+            : 'Local E2EE'
+
+  return (
+    <button
+      type="button"
+      className="sync-badge"
+      data-status={status}
+      title={errorMessage ?? 'AES-256-GCM end-to-end encrypted storage. Click to sync now.'}
+      onClick={() => void pushDeckToCloud()}
+    >
+      <span className="sync-dot" data-status={status} />
+      {label}
     </button>
   )
 }
@@ -298,6 +336,20 @@ function Toolbar() {
           onClick={() => selected && deck.removeBox(selected.id)}
         >
           <Icon d="M3 4.5h10 M6.3 4.5V2.8h3.4v1.7 M4.6 4.5l.6 8.7h5.6l.6-8.7" />
+        </button>
+
+        <span className="tool-sep" />
+
+        <SyncBadge />
+
+        <button
+          type="button"
+          className="tool-icon"
+          title="Lock Input mode (require password again)"
+          aria-label="Lock Input mode"
+          onClick={() => deck.lockInputMode()}
+        >
+          <Icon d="M4.5 7V5.2a3.5 3.5 0 0 1 7 0V7 M3.5 7h9v6.5h-9z" />
         </button>
 
         <button type="button" className="tool-done" title="Leave input mode (Esc)" onClick={() => deck.setInputMode(false)}>

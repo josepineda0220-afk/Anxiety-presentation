@@ -12,6 +12,7 @@ import {
   type SlideSpec,
 } from '../data/sections'
 import { useStage } from '../stage/focusStore'
+import { verifyEditPassword } from '../sync/crypto'
 
 export type TextStyle = 'title' | 'heading' | 'body' | 'small'
 export type TextColor = 'white' | 'grey' | 'black'
@@ -50,6 +51,9 @@ interface DeckState {
   slide: string
   sections: Section[]
   inputMode: boolean
+  unlocked: boolean
+  promptingPassword: boolean
+  editToken: string | null
   selectedId: string | null
   editingId: string | null
   boxes: TextBox[]
@@ -57,6 +61,12 @@ interface DeckState {
   format: TextFormat
   setSlide: (slide: string) => void
   setInputMode: (on: boolean) => void
+  /** Opens Input Mode if already unlocked, or opens the password gate modal. */
+  requestInputMode: () => void
+  cancelPasswordPrompt: () => void
+  unlockWithPassword: (password: string) => Promise<boolean>
+  lockInputMode: () => void
+  replaceDeckFromCloud: (payload: { sections: Section[]; boxes: TextBox[]; format: TextFormat }) => void
   addBox: () => void
   updateBox: (id: string, patch: Partial<Omit<TextBox, 'id' | 'slide'>>) => void
   removeBox: (id: string) => void
@@ -119,6 +129,9 @@ export const useDeck = create<DeckState>()(
       slide: SEED_SECTIONS[0].slides[0].id,
       sections: SEED_SECTIONS,
       inputMode: false,
+      unlocked: false,
+      promptingPassword: false,
+      editToken: null,
       selectedId: null,
       editingId: null,
       boxes: ALL_SEED_BOXES,
@@ -129,6 +142,52 @@ export const useDeck = create<DeckState>()(
 
       setInputMode: (on) =>
         set((s) => (on ? { inputMode: true } : { ...finishEditing(s), inputMode: false, selectedId: null })),
+
+      requestInputMode: () =>
+        set((s) => (s.unlocked ? { inputMode: true, promptingPassword: false } : { promptingPassword: true })),
+
+      cancelPasswordPrompt: () => set({ promptingPassword: false }),
+
+      unlockWithPassword: async (password) => {
+        const { valid, editToken } = await verifyEditPassword(password)
+        if (!valid || !editToken) return false
+        set({
+          unlocked: true,
+          editToken,
+          promptingPassword: false,
+          inputMode: true,
+        })
+        return true
+      },
+
+      lockInputMode: () =>
+        set((s) => ({
+          ...finishEditing(s),
+          unlocked: false,
+          editToken: null,
+          promptingPassword: false,
+          inputMode: false,
+          selectedId: null,
+        })),
+
+      replaceDeckFromCloud: ({ sections, boxes, format }) =>
+        set((s) => {
+          if (sections.length === 0) return {}
+          const allSlides = sections.flatMap((sec) =>
+            sec.slides.map((sl) => ({ ...sl, backdrop: sec.backdrop })),
+          )
+          const activeSlide = allSlides.find((sl) => sl.id === s.slide) ?? allSlides[0]
+          if (activeSlide) {
+            useStage.getState().setFocus(activeSlide.focus)
+            useStage.getState().setBackdrop(activeSlide.backdrop)
+          }
+          return {
+            sections,
+            boxes,
+            format: format ?? s.format,
+            slide: activeSlide ? activeSlide.id : s.slide,
+          }
+        }),
 
       addBox: () =>
         set((s) => {

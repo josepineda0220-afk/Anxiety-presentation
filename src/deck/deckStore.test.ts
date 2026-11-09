@@ -18,6 +18,7 @@ const { MEDICATION_SLIDES, SEED_BOXES } = await import('../data/medications')
 const { ALL_SEED_BOXES, NON_MEDICATION_SEED_BOXES, SEED_SECTIONS } = await import('../data/sections')
 const { getAllSlides, goToSection, goToSlide, stepSlide } = await import('./slides')
 const { useStage } = await import('../stage/focusStore')
+const { DEFAULT_EDIT_PASSWORD } = await import('../sync/crypto')
 
 const deck = () => useDeck.getState()
 const only = () => {
@@ -30,6 +31,9 @@ beforeEach(() => {
     slide: '1-1',
     sections: structuredClone(SEED_SECTIONS),
     inputMode: true,
+    unlocked: false,
+    promptingPassword: false,
+    editToken: null,
     selectedId: null,
     editingId: null,
     boxes: [],
@@ -214,6 +218,43 @@ describe('presentation sections and backdrop themes', () => {
     stepSlide(1)
     expect(deck().slide).toBe('2-1')
     expect(getAllSlides().length).toBeGreaterThan(20)
+  })
+
+  it('gates Input Mode behind the team password and supports locking again', async () => {
+    deck().setInputMode(false)
+    deck().requestInputMode()
+    expect(deck().inputMode).toBe(false)
+    expect(deck().promptingPassword).toBe(true)
+
+    const wrong = await deck().unlockWithPassword('wrong')
+    expect(wrong).toBe(false)
+    expect(deck().unlocked).toBe(false)
+    expect(deck().inputMode).toBe(false)
+
+    const right = await deck().unlockWithPassword(DEFAULT_EDIT_PASSWORD)
+    expect(right).toBe(true)
+    expect(deck().unlocked).toBe(true)
+    expect(deck().editToken).toBeTruthy()
+    expect(deck().inputMode).toBe(true)
+    expect(deck().promptingPassword).toBe(false)
+
+    deck().lockInputMode()
+    expect(deck().unlocked).toBe(false)
+    expect(deck().editToken).toBeNull()
+    expect(deck().inputMode).toBe(false)
+  })
+
+  it('hydrates sections, boxes, and backdrop from a decrypted cloud snapshot', () => {
+    const customSections = structuredClone(SEED_SECTIONS)
+    customSections[0].backdrop = 'purple'
+    deck().replaceDeckFromCloud({
+      sections: customSections,
+      boxes: [{ id: 'cloud-1', slide: '1-1', text: 'Synced from cloud', x: 0.1, y: 0.2, style: 'body', color: 'white', look: 'frosted' }],
+      format: { style: 'heading', color: 'white', look: 'frosted' },
+    })
+    expect(deck().boxes).toHaveLength(1)
+    expect(deck().boxes[0].text).toBe('Synced from cloud')
+    expect(useStage.getState().backdrop).toBe('purple')
   })
 })
 
