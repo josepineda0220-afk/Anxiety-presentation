@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import type { BackdropTheme } from '../data/sections'
+import { DEFAULT_CURSOR_EFFECT, type BackdropTheme, type CursorEffect } from '../data/sections'
 import { pushDeckToCloud, useSyncStatus } from '../sync/supabase'
 import { useDeck, type BoxLook, type TextColor, type TextStyle } from './deckStore'
 import { useDeckKeys } from './keys'
@@ -23,6 +23,12 @@ const COLORS: { value: TextColor; label: string }[] = [
 const LOOKS: { value: BoxLook; label: string }[] = [
   { value: 'clear', label: 'Clear' },
   { value: 'frosted', label: 'Frosted' },
+]
+
+const CURSOR_EFFECTS: { value: CursorEffect; label: string; hint: string }[] = [
+  { value: 'part', label: 'Move away', hint: 'dots move out of the cursor’s way' },
+  { value: 'ripple', label: 'Ripple', hint: 'ripples spread through the background from the cursor' },
+  { value: 'off', label: 'Off', hint: 'the background ignores the cursor' },
 ]
 
 const BACKDROPS: { value: BackdropTheme; label: string }[] = [
@@ -245,6 +251,28 @@ function Toolbar() {
               </button>
             ))}
           </div>
+        )}
+
+        {activeSection && (
+          <>
+            <span className="tool-sep" />
+            <div className="tool-group" role="radiogroup" aria-label="Section cursor effect">
+              <span className="tool-label">Cursor</span>
+              {CURSOR_EFFECTS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={(activeSection.cursorEffect ?? DEFAULT_CURSOR_EFFECT) === option.value}
+                  className="tool-backdrop"
+                  title={`In "${activeSection.title}", ${option.hint}`}
+                  onClick={() => deck.setSectionCursorEffect(activeSection.id, option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </>
         )}
       </motion.div>
 

@@ -4,6 +4,7 @@ import '@fontsource-variable/inter'
 import '@fontsource/instrument-serif'
 import './styles.css'
 import { BrainStage } from './stage/BrainStage'
+import { useStageGestures } from './stage/useStageGestures'
 import { useDeck } from './deck/deckStore'
 import { InputControls } from './deck/InputControls'
 import { TextLayer } from './deck/TextLayer'
@@ -12,6 +13,7 @@ import { goToSection, goToSlide, stepSlide } from './deck/slides'
 import { startCloudSync } from './sync/supabase'
 
 function App() {
+  useStageGestures()
   useEffect(() => {
     const stopSync = startCloudSync()
     const onKey = (event: KeyboardEvent) => {

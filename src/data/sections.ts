@@ -4,6 +4,15 @@ import { MEDICATION_SLIDES, SEED_BOXES as MEDICATION_SEED_BOXES } from './medica
 
 export type BackdropTheme = 'blue' | 'purple'
 
+/**
+ * What the background does around the cursor: the dots move out of its way ('part'), or rings
+ * ripple out through the background colour and carry the dots with them ('ripple').
+ */
+export type CursorEffect = 'part' | 'ripple' | 'off'
+
+/** For sections saved before the option existed. */
+export const DEFAULT_CURSOR_EFFECT: CursorEffect = 'part'
+
 export interface SlideSpec {
   id: string
   title: string
@@ -14,6 +23,8 @@ export interface Section {
   id: string
   title: string
   backdrop: BackdropTheme
+  /** Left out, it is DEFAULT_CURSOR_EFFECT. */
+  cursorEffect?: CursorEffect
   slides: SlideSpec[]
 }
 

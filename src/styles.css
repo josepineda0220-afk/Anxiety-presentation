@@ -26,3 +26,14 @@ body,
   position: fixed !important;
   inset: 0;
 }
+
+/* A double tap on the stage is for the brain, not for zooming the page. */
+body {
+  touch-action: manipulation;
+}
+
+/* While the viewer is turning the brain, drags and pinches go to it and not to the page. */
+html[data-explore] body {
+  touch-action: none;
+  overscroll-behavior: none;
+}

@@ -4,10 +4,12 @@ import { IDLE_FOCUS } from '../brain/regions'
 import { SEED_BOXES } from '../data/medications'
 import {
   ALL_SEED_BOXES,
+  DEFAULT_CURSOR_EFFECT,
   NON_MEDICATION_SEED_BOXES,
   SEED_SECTIONS,
   makeTemplateSlideBoxes,
   type BackdropTheme,
+  type CursorEffect,
   type Section,
   type SlideSpec,
 } from '../data/sections'
@@ -77,6 +79,8 @@ interface DeckState {
   applyFormat: (patch: Partial<TextFormat>) => void
   /** Sets the background color theme for a section and updates the stage if active. */
   setSectionBackdrop: (sectionId: string, backdrop: BackdropTheme) => void
+  /** Sets what the background does around the cursor in a section, and updates the stage if active. */
+  setSectionCursorEffect: (sectionId: string, cursorEffect: CursorEffect) => void
   /** Renames a section title. */
   renameSection: (sectionId: string, title: string) => void
   /** Appends a new section with starter template boxes and switches to it. */
@@ -117,6 +121,12 @@ function finishEditing(state: DeckState): Partial<DeckState> {
     editingId: null,
     boxes: text === box?.text ? state.boxes : state.boxes.map((b) => (b.id === id ? { ...b, text } : b)),
   }
+}
+
+/** Gives the stage a section's background colour and cursor effect. */
+function showSectionOnStage(section: Pick<Section, 'backdrop' | 'cursorEffect'>) {
+  useStage.getState().setBackdrop(section.backdrop)
+  useStage.getState().setCursorEffect(section.cursorEffect ?? DEFAULT_CURSOR_EFFECT)
 }
 
 function findSectionForSlide(sections: Section[], slideId: string): Section | undefined {
@@ -173,13 +183,11 @@ export const useDeck = create<DeckState>()(
       replaceDeckFromCloud: ({ sections, boxes, format }) =>
         set((s) => {
           if (sections.length === 0) return {}
-          const allSlides = sections.flatMap((sec) =>
-            sec.slides.map((sl) => ({ ...sl, backdrop: sec.backdrop })),
-          )
+          const allSlides = sections.flatMap((sec) => sec.slides.map((sl) => ({ ...sl, section: sec })))
           const activeSlide = allSlides.find((sl) => sl.id === s.slide) ?? allSlides[0]
           if (activeSlide) {
             useStage.getState().setFocus(activeSlide.focus)
-            useStage.getState().setBackdrop(activeSlide.backdrop)
+            showSectionOnStage(activeSlide.section)
           }
           return {
             sections,
@@ -236,9 +244,15 @@ export const useDeck = create<DeckState>()(
         set((s) => {
           const sections = s.sections.map((sec) => (sec.id === sectionId ? { ...sec, backdrop } : sec))
           const activeSec = findSectionForSlide(sections, s.slide)
-          if (activeSec?.id === sectionId) {
-            useStage.getState().setBackdrop(backdrop)
-          }
+          if (activeSec?.id === sectionId) showSectionOnStage(activeSec)
+          return { sections }
+        }),
+
+      setSectionCursorEffect: (sectionId, cursorEffect) =>
+        set((s) => {
+          const sections = s.sections.map((sec) => (sec.id === sectionId ? { ...sec, cursorEffect } : sec))
+          const activeSec = findSectionForSlide(sections, s.slide)
+          if (activeSec?.id === sectionId) showSectionOnStage(activeSec)
           return { sections }
         }),
 
@@ -269,6 +283,7 @@ export const useDeck = create<DeckState>()(
           id: sectionId,
           title: sectionTitle,
           backdrop,
+          ...(activeSec?.cursorEffect ? { cursorEffect: activeSec.cursorEffect } : {}),
           slides: [slideSpec],
         }
         const templateBoxes: TextBox[] = makeTemplateSlideBoxes(sectionTitle, 'Overview & key points').map((box) => ({
@@ -286,7 +301,7 @@ export const useDeck = create<DeckState>()(
           editingId: null,
         })
         useStage.getState().setFocus(slideSpec.focus)
-        useStage.getState().setBackdrop(backdrop)
+        showSectionOnStage(newSection)
         return newSection
       },
 
@@ -306,7 +321,7 @@ export const useDeck = create<DeckState>()(
             const nextSection = sections[Math.min(index, sections.length - 1)]
             const nextSlide = nextSection.slides[0]
             useStage.getState().setFocus(nextSlide.focus)
-            useStage.getState().setBackdrop(nextSection.backdrop)
+            showSectionOnStage(nextSection)
             return {
               ...cleaned,
               sections,
@@ -358,7 +373,7 @@ export const useDeck = create<DeckState>()(
           editingId: null,
         })
         useStage.getState().setFocus(newSlide.focus)
-        useStage.getState().setBackdrop(targetSec.backdrop)
+        showSectionOnStage(targetSec)
         return newSlide
       },
 
@@ -380,7 +395,7 @@ export const useDeck = create<DeckState>()(
           if (s.slide === targetSlideId) {
             const nextSlide = remainingSlides[Math.min(slideIndex, remainingSlides.length - 1)]
             useStage.getState().setFocus(nextSlide.focus)
-            useStage.getState().setBackdrop(section.backdrop)
+            showSectionOnStage(section)
             return {
               ...cleaned,
               sections,

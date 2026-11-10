@@ -42,6 +42,8 @@ beforeEach(() => {
   useStage.setState({
     focus: { regions: [], circuits: [] },
     backdrop: 'blue',
+    cursorEffect: 'part',
+    explore: false,
     shift: 0.17,
   })
 })
@@ -183,6 +185,37 @@ describe('presentation sections and backdrop themes', () => {
     stepSlide(-1)
     expect(deck().slide).toBe('1-1')
     expect(useStage.getState().backdrop).toBe('blue')
+  })
+
+  it('switches the cursor effect when a section’s is changed or navigated to', () => {
+    // Sections saved before the option existed have no cursorEffect, and move the dots away.
+    expect(deck().sections[0].cursorEffect).toBeUndefined()
+    expect(getAllSlides()[0].cursorEffect).toBe('part')
+
+    deck().setSectionCursorEffect('sec-2', 'ripple')
+    expect(useStage.getState().cursorEffect).toBe('part')
+
+    goToSection('sec-2')
+    expect(useStage.getState().cursorEffect).toBe('ripple')
+
+    deck().setSectionCursorEffect('sec-2', 'off')
+    expect(useStage.getState().cursorEffect).toBe('off')
+
+    stepSlide(-1)
+    expect(useStage.getState().cursorEffect).toBe('part')
+  })
+
+  it('gives a new section the cursor effect of the one it was added from', () => {
+    deck().setSectionCursorEffect('sec-1', 'ripple')
+    const added = deck().addSection('Case Study')
+    expect(added.cursorEffect).toBe('ripple')
+    expect(useStage.getState().cursorEffect).toBe('ripple')
+  })
+
+  it('takes the brain back from the viewer when the slide changes', () => {
+    useStage.getState().setExplore(true)
+    goToSection('sec-2')
+    expect(useStage.getState().explore).toBe(false)
   })
 
   it('adds and removes sections along with their template boxes', () => {
