@@ -20,9 +20,25 @@ Then open http://localhost:5173.
   (default: `nursing2026`, configurable via `VITE_EDIT_PASSWORD`) to unlock editing:
   - Switch between sections in the top bar, double-click a section tab to rename it, or use **+ Section** / **−** to add or remove sections.
   - Toggle each section's **Backdrop** between **Blue** and **Lavender** (the 3D background smoothly crossfades when moving between sections).
+  - Choose each section's **Cursor** effect: **Move away** (the dots step aside around the cursor), **Ripple** (rings spread through the background colour and carry the dots with them), or **Off**.
   - Add or remove slides within a section using **+** / **−** next to the slide numbers.
   - Click **Text box** to add text, drag to position, drag handles to resize, and double-click to edit.
   - Click the lock icon to re-lock Input Mode, or **Done** (`Esc`) to return to presenting.
+
+## Exploring the brain
+
+There is no on-screen hint for this; it works the same while presenting and in Input Mode, on a
+phone, tablet, or computer.
+
+- **Double-tap (or double-click) the brain** to take hold of it.
+- **Scroll or drag in any direction** to turn it: one finger on a touch screen, two fingers on a
+  trackpad, or the mouse wheel (hold **Shift** to turn sideways) or a click-and-drag with a mouse.
+- **Pinch out** to gradually pull the parts of the brain apart, and pinch in to bring them back
+  together. This needs a touch screen or a trackpad; with a plain mouse, hold **Ctrl** and scroll.
+- **Double-tap again**, anywhere, to let go. The brain eases back to what the slide was showing.
+  Moving to another slide lets go as well.
+
+Only your own screen changes. Teammates and viewers keep seeing the slide as it was.
 
 ## Cloud Sync (Supabase), Password Gate & End-to-End Encryption (E2EE)
 
