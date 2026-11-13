@@ -18,7 +18,7 @@ export function PasswordGate() {
         setError('Incorrect team password. Please try again.')
       }
     } catch {
-      setError('Could not verify password in this browser.')
+      setError('Could not reach the server to check the password. Check your connection and try again.')
     } finally {
       setVerifying(false)
     }

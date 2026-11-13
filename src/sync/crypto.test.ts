@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest'
-import { DEFAULT_EDIT_PASSWORD, decryptDeck, deriveEditToken, encryptDeck, verifyEditPassword } from './crypto'
+import { describe, expect, it, vi } from 'vitest'
+
+// Check against the built-in default password, whatever the local .env sets.
+vi.stubEnv('VITE_EDIT_PASSWORD_HASH', '')
+vi.stubEnv('VITE_EDIT_PASSWORD', '')
+import { DEFAULT_EDIT_PASSWORD, decryptDeck, encryptDeck, verifyEditPassword } from './crypto'
 
 describe('AES-256-GCM end-to-end encryption', () => {
   it('encrypts and decrypts deck state with a random IV and salt each time', async () => {
@@ -34,20 +38,12 @@ describe('AES-256-GCM end-to-end encryption', () => {
 })
 
 describe('PBKDF2 password gate verification', () => {
-  it('accepts the configured team password and derives a deterministic write token', async () => {
-    const result = await verifyEditPassword(DEFAULT_EDIT_PASSWORD)
-    expect(result.valid).toBe(true)
-    expect(result.editToken).toHaveLength(64)
-
-    const tokenAgain = await deriveEditToken(DEFAULT_EDIT_PASSWORD)
-    expect(result.editToken).toBe(tokenAgain)
+  it('accepts the configured team password', async () => {
+    expect(await verifyEditPassword(DEFAULT_EDIT_PASSWORD)).toBe(true)
   })
 
   it('rejects an incorrect or blank password', async () => {
-    const wrong = await verifyEditPassword('wrong-password')
-    expect(wrong).toEqual({ valid: false, editToken: null })
-
-    const blank = await verifyEditPassword('   ')
-    expect(blank).toEqual({ valid: false, editToken: null })
+    expect(await verifyEditPassword('wrong-password')).toBe(false)
+    expect(await verifyEditPassword('   ')).toBe(false)
   })
 })

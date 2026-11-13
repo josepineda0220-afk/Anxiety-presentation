@@ -17,7 +17,7 @@ Then open http://localhost:5173.
 - **ArrowRight**, **Space**, or **PageDown** steps forward; **ArrowLeft** or **PageUp** steps back.
 - Number keys **1–9** jump directly to Sections 1–9.
 - Press **I** (or move the mouse and click **Input mode** at the bottom right) and enter the team password
-  (default: `nursing2026`, configurable via `VITE_EDIT_PASSWORD`) to unlock editing:
+  (the password of the Firebase editor account; without Firebase it falls back to `VITE_EDIT_PASSWORD`, default `nursing2026`) to unlock editing:
   - Switch between sections in the top bar, double-click a section tab to rename it, or use **+ Section** / **−** to add or remove sections.
   - Toggle each section's **Backdrop** between **Blue** and **Lavender** (the 3D background smoothly crossfades when moving between sections).
   - Choose each section's **Cursor** effect: **Move away** (the dots step aside around the cursor), **Ripple** (rings spread through the background colour and carry the dots with them), or **Off**.
@@ -40,33 +40,45 @@ phone, tablet, or computer.
 
 Only your own screen changes. Teammates and viewers keep seeing the slide as it was.
 
-## Cloud Sync (Supabase), Password Gate & End-to-End Encryption (E2EE)
+## Cloud Sync (Firebase), Password Gate & End-to-End Encryption (E2EE)
 
-All edits are cached locally and, when Supabase is configured, encrypted client-side in the browser using
-**Web Crypto (`PBKDF2` + `AES-256-GCM`)** before being sent to Supabase over HTTPS. Supabase only ever stores
-opaque `ciphertext`, `iv`, and `salt`. Database writes are gated by a Postgres `SECURITY DEFINER` RPC that
-verifies a cryptographic token derived from the team password.
+All edits are cached locally and, when Firebase is configured, encrypted in the browser with
+**Web Crypto (`PBKDF2` + `AES-256-GCM`)** before being saved to Cloud Firestore. Firestore only ever stores
+opaque `ciphertext`, `iv`, and `salt`, in the document `presentations/anxiety-deck`, and teammates see
+changes live.
 
-### 1. Set up Supabase
+The team password is the password of one shared Firebase Auth account,
+`editors@anxiety-presentation.invalid`. Unlocking Input Mode signs in to that account, and
+[`firestore.rules`](firestore.rules) only let that account save the deck. Anyone can view the deck.
 
-1. Create a free project at [supabase.com](https://supabase.com).
-2. Open the **SQL Editor** in your Supabase dashboard, paste the contents of [`supabase/schema.sql`](supabase/schema.sql), and click **Run**.
-3. Copy `.env.example` to `.env` and fill in your values:
+### 1. Set up Firebase (free Spark plan is enough)
+
+1. Create a project in the [Firebase console](https://console.firebase.google.com) and add a **Web app**.
+2. **Build → Firestore Database → Create database** (production mode).
+3. **Build → Authentication → Sign-in method**: enable **Email/Password**. Then under **Users → Add user**,
+   add `editors@anxiety-presentation.invalid` with the team password (at least 6 characters).
+4. Copy `.env.example` to `.env` and fill in the `VITE_FIREBASE_*` values from **Project settings → Your apps**.
+   Set `VITE_DECK_ENCRYPTION_KEY` to a secret passphrase; every teammate's build must use the same one.
+5. Deploy the security rules:
 
 ```bash
-cp .env.example .env
+firebase use --add            # pick the project
+firebase deploy --only firestore:rules
 ```
 
-- `VITE_SUPABASE_URL` & `VITE_SUPABASE_ANON_KEY`: from **Project Settings → API**.
-- `VITE_EDIT_PASSWORD`: the password your team will type when unlocking Input Mode.
-- `VITE_DECK_ENCRYPTION_KEY`: a secret passphrase used to derive the 256-bit AES-GCM encryption key.
+To change the team password later, change it on that user in **Authentication → Users**.
 
 ### 2. Deploy with Automatic HTTPS
 
-Both **Vercel** ([`vercel.json`](vercel.json)) and **Cloudflare Pages / Netlify** ([`public/_headers`](public/_headers)) are preconfigured with automatic HTTPS and `Strict-Transport-Security` (HSTS) headers:
+**Firebase Hosting** ([`firebase.json`](firebase.json)) serves `dist` with HTTPS and the same security
+headers. The build reads `.env`, so build on a machine that has it:
 
-- **Vercel**: Import the Git repository at [vercel.com/new](https://vercel.com/new), add the environment variables from `.env`, and click **Deploy**.
-- **Cloudflare Pages**: Connect the repository in Cloudflare Pages with build command `npm run build`, output directory `dist`, and add the environment variables from `.env`.
+```bash
+firebase deploy --only hosting   # builds first, then uploads
+```
+
+**Vercel** ([`vercel.json`](vercel.json)) and **Cloudflare Pages / Netlify** ([`public/_headers`](public/_headers))
+still work as well: use build command `npm run build`, output directory `dist`, and add the variables from `.env`.
 
 ## The brain model
 

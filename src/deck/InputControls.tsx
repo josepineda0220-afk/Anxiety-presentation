@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { DEFAULT_CURSOR_EFFECT, type BackdropTheme, type CursorEffect } from '../data/sections'
-import { pushDeckToCloud, useSyncStatus } from '../sync/supabase'
+import { useSyncStatus } from '../sync/syncStatus'
 import { useDeck, type BoxLook, type TextColor, type TextStyle } from './deckStore'
 import { useDeckKeys } from './keys'
 import { PasswordGate } from './PasswordGate'
@@ -112,7 +112,7 @@ function SyncBadge() {
       className="sync-badge"
       data-status={status}
       title={errorMessage ?? 'AES-256-GCM end-to-end encrypted storage. Click to sync now.'}
-      onClick={() => void pushDeckToCloud()}
+      onClick={() => void import('../sync/cloudSync').then((m) => m.pushDeckToCloud())}
     >
       <span className="sync-dot" data-status={status} />
       {label}

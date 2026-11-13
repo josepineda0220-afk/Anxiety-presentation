@@ -1,0 +1,27 @@
+rules_version = '2';
+
+// The deck is stored encrypted (AES-256-GCM, done in the browser), so anyone may read the envelope.
+// Only the shared editor account (EDITOR_EMAIL in src/sync/firebase.ts) may save it, and only in the
+// expected shape. Nothing may delete it, and every other path is closed.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /presentations/{deckId} {
+      allow read: if true;
+      allow create, update: if isEditor() && isEnvelope(request.resource.data);
+    }
+
+    function isEditor() {
+      return request.auth != null
+        && request.auth.token.email == 'editors@anxiety-presentation.invalid';
+    }
+
+    function isEnvelope(data) {
+      return data.keys().hasOnly(['ciphertext', 'iv', 'salt', 'updatedAt'])
+        && data.keys().hasAll(['ciphertext', 'iv', 'salt', 'updatedAt'])
+        && data.ciphertext is string && data.ciphertext.size() > 0
+        && data.iv is string && data.iv.size() <= 64
+        && data.salt is string && data.salt.size() <= 64
+        && data.updatedAt == request.time;
+    }
+  }
+}

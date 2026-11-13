@@ -15,6 +15,7 @@ import {
 } from '../data/sections'
 import { useStage } from '../stage/focusStore'
 import { verifyEditPassword } from '../sync/crypto'
+import { isCloudConfigured } from '../sync/config'
 
 export type TextStyle = 'title' | 'heading' | 'body' | 'small'
 export type TextColor = 'white' | 'grey' | 'black'
@@ -55,7 +56,6 @@ interface DeckState {
   inputMode: boolean
   unlocked: boolean
   promptingPassword: boolean
-  editToken: string | null
   selectedId: string | null
   editingId: string | null
   boxes: TextBox[]
@@ -141,7 +141,6 @@ export const useDeck = create<DeckState>()(
       inputMode: false,
       unlocked: false,
       promptingPassword: false,
-      editToken: null,
       selectedId: null,
       editingId: null,
       boxes: ALL_SEED_BOXES,
@@ -159,26 +158,29 @@ export const useDeck = create<DeckState>()(
       cancelPasswordPrompt: () => set({ promptingPassword: false }),
 
       unlockWithPassword: async (password) => {
-        const { valid, editToken } = await verifyEditPassword(password)
-        if (!valid || !editToken) return false
+        // With Firebase, the password signs in to the shared editor account that Firestore rules let write.
+        const valid = isCloudConfigured()
+          ? await (await import('../sync/firebase')).signInEditor(password.trim())
+          : await verifyEditPassword(password)
+        if (!valid) return false
         set({
           unlocked: true,
-          editToken,
           promptingPassword: false,
           inputMode: true,
         })
         return true
       },
 
-      lockInputMode: () =>
+      lockInputMode: () => {
         set((s) => ({
           ...finishEditing(s),
           unlocked: false,
-          editToken: null,
           promptingPassword: false,
           inputMode: false,
           selectedId: null,
-        })),
+        }))
+        if (isCloudConfigured()) void import('../sync/firebase').then((m) => m.signOutEditor())
+      },
 
       replaceDeckFromCloud: ({ sections, boxes, format }) =>
         set((s) => {

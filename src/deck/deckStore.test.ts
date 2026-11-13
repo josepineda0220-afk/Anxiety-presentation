@@ -1,4 +1,9 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+// Tests use the default offline password check, whatever the local .env sets up.
+vi.stubEnv('VITE_EDIT_PASSWORD_HASH', '')
+vi.stubEnv('VITE_EDIT_PASSWORD', '')
+vi.stubEnv('VITE_FIREBASE_API_KEY', '')
 
 // The store saves to localStorage, which Node does not have.
 const saved = new Map<string, string>()
@@ -33,7 +38,6 @@ beforeEach(() => {
     inputMode: true,
     unlocked: false,
     promptingPassword: false,
-    editToken: null,
     selectedId: null,
     editingId: null,
     boxes: [],
@@ -267,13 +271,11 @@ describe('presentation sections and backdrop themes', () => {
     const right = await deck().unlockWithPassword(DEFAULT_EDIT_PASSWORD)
     expect(right).toBe(true)
     expect(deck().unlocked).toBe(true)
-    expect(deck().editToken).toBeTruthy()
     expect(deck().inputMode).toBe(true)
     expect(deck().promptingPassword).toBe(false)
 
     deck().lockInputMode()
     expect(deck().unlocked).toBe(false)
-    expect(deck().editToken).toBeNull()
     expect(deck().inputMode).toBe(false)
   })
 

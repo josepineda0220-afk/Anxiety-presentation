@@ -10,12 +10,19 @@ import { InputControls } from './deck/InputControls'
 import { TextLayer } from './deck/TextLayer'
 import { isTyping } from './deck/keys'
 import { goToSection, goToSlide, stepSlide } from './deck/slides'
-import { startCloudSync } from './sync/supabase'
+import { isCloudConfigured } from './sync/config'
 
 function App() {
   useStageGestures()
   useEffect(() => {
-    const stopSync = startCloudSync()
+    // Firebase loads in its own chunk after the first paint, and not at all without the VITE_FIREBASE_* settings.
+    let stopSync = () => {}
+    let stopped = false
+    if (isCloudConfigured()) {
+      void import('./sync/cloudSync').then(({ startCloudSync }) => {
+        if (!stopped) stopSync = startCloudSync()
+      })
+    }
     const onKey = (event: KeyboardEvent) => {
       // A key pressed in a text box is text, not a slide change.
       if (isTyping(event.target) || event.metaKey || event.ctrlKey || event.altKey) return
@@ -31,6 +38,7 @@ function App() {
     goToSlide(initialView ?? useDeck.getState().slide)
     return () => {
       window.removeEventListener('keydown', onKey)
+      stopped = true
       stopSync()
     }
   }, [])

@@ -1,9 +1,9 @@
 /**
- * End-to-end encryption (AES-256-GCM via Web Crypto API) and PBKDF2 password verification.
+ * End-to-end encryption (AES-256-GCM via Web Crypto API) and the offline password check.
  *
- * All presentation data is encrypted in the browser before being sent to Supabase, so the database
- * only stores opaque ciphertext, IV, and salt. Editing requires unlocking Input Mode with the team
- * password, which derives a cryptographic write token verified both client-side and server-side.
+ * All presentation data is encrypted in the browser before being sent to Firestore, so the database
+ * only stores opaque ciphertext, IV, and salt. With Firebase set up, the team password is checked by
+ * Firebase Auth (see firebase.ts); the PBKDF2 check here is only used when the app runs without it.
  */
 
 export interface EncryptedEnvelope {
@@ -23,7 +23,6 @@ const DEFAULT_DECK_KEY = 'anxiety-presentation-e2ee-key-v1'
 export const DEFAULT_EDIT_PASSWORD = 'nursing2026'
 
 const AUTH_SALT = 'anxiety-presentation-auth-salt-v1'
-const TOKEN_SALT = 'anxiety-presentation-rpc-token-v1'
 
 function toBase64(bytes: Uint8Array): string {
   let binary = ''
@@ -125,13 +124,6 @@ export async function decryptDeck<T>(envelope: EncryptedEnvelope, passphrase = g
 }
 
 /**
- * Derives the server-side write token from the team password so the raw password is never sent.
- */
-export async function deriveEditToken(password: string): Promise<string> {
-  return deriveBitsHex(password.trim(), TOKEN_SALT)
-}
-
-/**
  * Derives a password verification hash for comparing against VITE_EDIT_PASSWORD_HASH.
  */
 export async function derivePasswordVerifier(password: string): Promise<string> {
@@ -141,9 +133,9 @@ export async function derivePasswordVerifier(password: string): Promise<string> 
 /**
  * Verifies the user-entered password against VITE_EDIT_PASSWORD_HASH or VITE_EDIT_PASSWORD.
  */
-export async function verifyEditPassword(candidate: string): Promise<{ valid: boolean; editToken: string | null }> {
+export async function verifyEditPassword(candidate: string): Promise<boolean> {
   const trimmed = candidate.trim()
-  if (!trimmed) return { valid: false, editToken: null }
+  if (!trimmed) return false
 
   const configuredHash = (import.meta.env.VITE_EDIT_PASSWORD_HASH as string | undefined)?.trim()
   const configuredPlain = (import.meta.env.VITE_EDIT_PASSWORD as string | undefined)?.trim() || DEFAULT_EDIT_PASSWORD
@@ -151,10 +143,5 @@ export async function verifyEditPassword(candidate: string): Promise<{ valid: bo
   const candidateVerifier = await derivePasswordVerifier(trimmed)
   const expectedVerifier = configuredHash || (await derivePasswordVerifier(configuredPlain))
 
-  if (candidateVerifier !== expectedVerifier) {
-    return { valid: false, editToken: null }
-  }
-
-  const editToken = await deriveEditToken(trimmed)
-  return { valid: true, editToken }
+  return candidateVerifier === expectedVerifier
 }
