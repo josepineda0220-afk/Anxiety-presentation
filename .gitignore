@@ -12,3 +12,4 @@ ui-debug.log
 __pycache__
 *.blend
 *.blend1
+backups/
