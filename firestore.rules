@@ -111,13 +111,14 @@ service cloud.firestore {
       return hasExactly(data,
           ['schemaVersion', 'revision', 'updatedAt', 'updatedBy', 'title', 'backdrop', 'deleted',
             'slideIds', 'slideTitles', 'slideRegions', 'slideCircuits'],
-          ['cursorEffect'])
+          ['cursorEffect', 'particles'])
         && isStamped(data)
         && data.title is string
         && data.title.size() >= 1
         && data.title.size() <= 200
-        && data.backdrop in ['blue', 'purple']
+        && data.backdrop in ['blue', 'purple', 'pink', 'black']
         && (!('cursorEffect' in data) || data.cursorEffect in ['part', 'ripple', 'off'])
+        && (!('particles' in data) || data.particles in ['plain', 'sparkle'])
         && data.deleted is bool
         && areValidSlides(data);
     }

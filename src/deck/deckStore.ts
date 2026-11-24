@@ -4,10 +4,12 @@ import { IDLE_FOCUS } from '../brain/regions'
 import {
   ALL_SEED_BOXES,
   DEFAULT_CURSOR_EFFECT,
+  DEFAULT_PARTICLE_STYLE,
   SEED_SECTIONS,
   makeTemplateSlideBoxes,
   type BackdropTheme,
   type CursorEffect,
+  type ParticleStyle,
   type Section,
   type SlideSpec,
 } from '../data/sections'
@@ -90,6 +92,8 @@ interface DeckState {
   setSectionBackdrop: (sectionId: string, backdrop: BackdropTheme) => void
   /** Sets what the background does around the cursor in a section, and updates the stage if active. */
   setSectionCursorEffect: (sectionId: string, cursorEffect: CursorEffect) => void
+  /** Sets whether a section's dots are plain or sparkle, and updates the stage if active. */
+  setSectionParticles: (sectionId: string, particles: ParticleStyle) => void
   /** Renames a section title. */
   renameSection: (sectionId: string, title: string) => void
   /** Appends a new section with starter template boxes and switches to it. */
@@ -132,10 +136,11 @@ function finishEditing(state: DeckState): Partial<DeckState> {
   }
 }
 
-/** Gives the stage a section's background colour and cursor effect. */
-function showSectionOnStage(section: Pick<Section, 'backdrop' | 'cursorEffect'>) {
+/** Gives the stage a section's background colour, cursor effect and dot style. */
+function showSectionOnStage(section: Pick<Section, 'backdrop' | 'cursorEffect' | 'particles'>) {
   useStage.getState().setBackdrop(section.backdrop)
   useStage.getState().setCursorEffect(section.cursorEffect ?? DEFAULT_CURSOR_EFFECT)
+  useStage.getState().setParticles(section.particles ?? DEFAULT_PARTICLE_STYLE)
 }
 
 function findSectionForSlide(sections: Section[], slideId: string): Section | undefined {
@@ -157,7 +162,11 @@ function settleSlide(state: DeckState, sections: Section[]): Partial<DeckState> 
   if (!section || !slide) return { sections }
   const stage = useStage.getState()
   if (!sameData(stage.focus, slide.focus)) stage.setFocus(slide.focus)
-  if (stage.backdrop !== section.backdrop || stage.cursorEffect !== (section.cursorEffect ?? DEFAULT_CURSOR_EFFECT)) {
+  if (
+    stage.backdrop !== section.backdrop ||
+    stage.cursorEffect !== (section.cursorEffect ?? DEFAULT_CURSOR_EFFECT) ||
+    stage.particles !== (section.particles ?? DEFAULT_PARTICLE_STYLE)
+  ) {
     showSectionOnStage(section)
   }
   if (slide.id === state.slide) return { sections }
@@ -321,6 +330,14 @@ export const useDeck = create<DeckState>()(
           return { sections }
         }),
 
+      setSectionParticles: (sectionId, particles) =>
+        set((s) => {
+          const sections = s.sections.map((sec) => (sec.id === sectionId ? { ...sec, particles } : sec))
+          const activeSec = findSectionForSlide(sections, s.slide)
+          if (activeSec?.id === sectionId) showSectionOnStage(activeSec)
+          return { sections }
+        }),
+
       renameSection: (sectionId, title) =>
         set((s) => {
           const trimmed = title.trim()
@@ -349,6 +366,7 @@ export const useDeck = create<DeckState>()(
           title: sectionTitle,
           backdrop,
           ...(activeSec?.cursorEffect ? { cursorEffect: activeSec.cursorEffect } : {}),
+          ...(activeSec?.particles ? { particles: activeSec.particles } : {}),
           slides: [slideSpec],
         }
         const templateBoxes: TextBox[] = makeTemplateSlideBoxes(sectionTitle, 'Overview & key points').map((box) => ({

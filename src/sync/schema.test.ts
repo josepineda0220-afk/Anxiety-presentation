@@ -57,6 +57,15 @@ describe('stored documents', () => {
     expect(sectionToData(section)).not.toHaveProperty('cursorEffect')
     expect(sameData(sectionToData(section), sectionToData(SEED_SECTIONS[0]))).toBe(true)
   })
+
+  it('saves sparkle dots and the pink and black backdrops, and reads them back', () => {
+    expect(sectionToData({ ...SEED_SECTIONS[0], particles: 'plain' })).not.toHaveProperty('particles')
+    for (const backdrop of ['pink', 'black'] as const) {
+      const data = sectionToData({ ...SEED_SECTIONS[0], backdrop, particles: 'sparkle' })
+      expect(sectionFromDoc(data)).toMatchObject({ backdrop, particles: 'sparkle' })
+    }
+    expect(sectionFromDoc({ ...sectionToData(SEED_SECTIONS[0]), backdrop: 'green' })).toBeNull()
+  })
 })
 
 describe('partProblem', () => {

@@ -1,6 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { DEFAULT_CURSOR_EFFECT, type BackdropTheme, type CursorEffect } from '../data/sections'
+import {
+  DEFAULT_CURSOR_EFFECT,
+  DEFAULT_PARTICLE_STYLE,
+  type BackdropTheme,
+  type CursorEffect,
+  type ParticleStyle,
+} from '../data/sections'
 import { useSyncLabel, useSyncStatus, type SyncStatus } from '../sync/syncStatus'
 import { useDeck, type BoxLook, type TextColor, type TextStyle } from './deckStore'
 import { useDeckKeys } from './keys'
@@ -35,6 +41,13 @@ const CURSOR_EFFECTS: { value: CursorEffect; label: string; hint: string }[] = [
 const BACKDROPS: { value: BackdropTheme; label: string }[] = [
   { value: 'blue', label: 'Blue' },
   { value: 'purple', label: 'Lavender' },
+  { value: 'pink', label: 'Pink' },
+  { value: 'black', label: 'Black' },
+]
+
+const PARTICLES: { value: ParticleStyle; label: string; hint: string }[] = [
+  { value: 'plain', label: 'Plain', hint: 'the dots are soft plain specks' },
+  { value: 'sparkle', label: 'Sparkle', hint: 'the dots glitter and catch the light' },
 ]
 
 export function InputControls() {
@@ -286,6 +299,23 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
                   className="tool-backdrop"
                   title={`In "${activeSection.title}", ${option.hint}`}
                   onClick={() => deck.setSectionCursorEffect(activeSection.id, option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <span className="tool-sep" />
+            <div className="tool-group" role="radiogroup" aria-label="Section particles">
+              <span className="tool-label">Dots</span>
+              {PARTICLES.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={(activeSection.particles ?? DEFAULT_PARTICLE_STYLE) === option.value}
+                  className="tool-backdrop"
+                  title={`In "${activeSection.title}", ${option.hint}`}
+                  onClick={() => deck.setSectionParticles(activeSection.id, option.value)}
                 >
                   {option.label}
                 </button>

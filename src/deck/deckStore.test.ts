@@ -45,6 +45,7 @@ beforeEach(() => {
     focus: { regions: [], circuits: [] },
     backdrop: 'blue',
     cursorEffect: 'part',
+    particles: 'plain',
     explore: false,
     shift: 0.17,
   })
@@ -209,6 +210,23 @@ describe('presentation sections and backdrop themes', () => {
 
     stepSlide(-1)
     expect(useStage.getState().cursorEffect).toBe('part')
+  })
+
+  it('switches the dot style when a section’s is changed or navigated to', () => {
+    expect(deck().sections[0].particles).toBeUndefined()
+    expect(getAllSlides()[0].particles).toBe('plain')
+
+    deck().setSectionParticles('sec-2', 'sparkle')
+    deck().setSectionBackdrop('sec-2', 'black')
+    expect(useStage.getState().particles).toBe('plain')
+
+    goToSection('sec-2')
+    expect(useStage.getState().particles).toBe('sparkle')
+    expect(useStage.getState().backdrop).toBe('black')
+
+    stepSlide(-1)
+    expect(useStage.getState().particles).toBe('plain')
+    expect(useStage.getState().backdrop).toBe('blue')
   })
 
   it('gives a new section the cursor effect of the one it was added from', () => {

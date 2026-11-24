@@ -1,5 +1,13 @@
 import { MEDICATION_SLIDES } from '../data/medications'
-import { DEFAULT_CURSOR_EFFECT, type BackdropTheme, type CursorEffect, type Section, type SlideSpec } from '../data/sections'
+import {
+  DEFAULT_CURSOR_EFFECT,
+  DEFAULT_PARTICLE_STYLE,
+  type BackdropTheme,
+  type CursorEffect,
+  type ParticleStyle,
+  type Section,
+  type SlideSpec,
+} from '../data/sections'
 import { useStage } from '../stage/focusStore'
 import { useDeck } from './deckStore'
 
@@ -10,6 +18,7 @@ export interface DeckSlide extends SlideSpec {
   sectionTitle: string
   backdrop: BackdropTheme
   cursorEffect: CursorEffect
+  particles: ParticleStyle
 }
 
 /** Flattens every section's slides in presentation order. */
@@ -21,6 +30,7 @@ export function getAllSlides(sections: Section[] = useDeck.getState().sections):
       sectionTitle: section.title,
       backdrop: section.backdrop,
       cursorEffect: section.cursorEffect ?? DEFAULT_CURSOR_EFFECT,
+      particles: section.particles ?? DEFAULT_PARTICLE_STYLE,
     })),
   )
 }
@@ -31,6 +41,7 @@ export function goToSlide(id: string) {
   useStage.getState().setFocus(slide.focus)
   useStage.getState().setBackdrop(slide.backdrop)
   useStage.getState().setCursorEffect(slide.cursorEffect)
+  useStage.getState().setParticles(slide.particles)
   // A new slide takes the brain back from anyone who was turning it by hand.
   useStage.getState().setExplore(false)
   useDeck.getState().setSlide(slide.id)
