@@ -86,8 +86,9 @@ report-only mode.
 
 ## Setup checklist (Jose)
 
-These need the Firebase console or your own credentials, so only you can do them. Do them in this
-order: the rules go live before the new app, and the deck is migrated in between.
+These need the Firebase, Google Cloud, Vercel or Supabase consoles, or your own credentials, so
+only you can do them. Do them in this order: the rules go live before the new app, and the deck is
+migrated in between.
 
 1. **Editor account.** Firebase console → Authentication → Sign-in method: Email/Password on.
    Users → add (or reset the password of) `editors@anxiety-presentation.invalid` with a strong
@@ -95,20 +96,27 @@ order: the rules go live before the new app, and the deck is migrated in between
    professor.
 2. **Pin its UID in the rules.** Copy that user's **User UID** and replace `REPLACE_WITH_EDITOR_UID`
    in [`firestore.rules`](firestore.rules). Until then, nobody can save anything.
-3. **Email enumeration protection.** Authentication → Settings → User actions → turn on
-   *Email enumeration protection*.
-4. **App Check.**
-   1. App Check → Apps → register the web app with **reCAPTCHA Enterprise**; add
-      `anxiety-brain-deck.web.app` and `anxiety-brain-deck.firebaseapp.com` as allowed domains.
-   2. Put the site key in `.env` as `VITE_APPCHECK_SITE_KEY`, and set `VITE_EDITOR_EMAIL` (see
-      [`.env.example`](.env.example)). Remove `VITE_DECK_ENCRYPTION_KEY` once step 6 is done.
-   3. For local development, register a debug token (App Check → Apps → ⋮ → Manage debug tokens)
-      and put it in `.env.development.local` as `VITE_APPCHECK_DEBUG_TOKEN`.
-   4. Watch App Check → APIs → Cloud Firestore and Authentication for a day or two after the
-      deploy. Once nearly all requests are verified, click **Enforce** for both.
-5. **Deploy the rules first:** `firebase deploy --only firestore:rules`. From now on the old app
-   can no longer save, so the deck holds still for the migration.
-6. **Migrate the deck to plain data**, dry run first (details under *Migrating the old deck*):
+3. **Delete the Vercel project** before this change reaches `main`: Vercel dashboard → the project
+   → Settings → General → *Delete Project*. The deck lives only on Firebase Hosting now, and with
+   `vercel.json` gone a still-connected Vercel project would publish a stray copy of the app. Old
+   `vercel.app` links stop working, so share https://anxiety-brain-deck.web.app instead.
+4. **Email enumeration protection.** Authentication → Settings → User actions → make sure
+   *Email enumeration protection* is on (new projects have it on already).
+5. **App Check.**
+   1. Google Cloud console → [Security → reCAPTCHA](https://console.cloud.google.com/security/recaptcha)
+      (project `anxiety-brain-deck`; enable the API if asked) → *Create key*: type **Web**, domains
+      `anxiety-brain-deck.web.app` and `anxiety-brain-deck.firebaseapp.com` (never `localhost`),
+      domain verification on, *Will you use challenges?* off. Copy the key.
+   2. Firebase console → App Check → Apps → the web app → **reCAPTCHA Enterprise** → paste the key
+      → Save.
+   3. Put the key in `.env` as `VITE_APPCHECK_SITE_KEY`, and check `VITE_EDITOR_EMAIL` is set (see
+      [`.env.example`](.env.example)).
+   4. Optional, for `npm run dev` against the real project: App Check → Apps → ⋮ → *Manage debug
+      tokens*, add one, and put it in `.env.development.local` as `VITE_APPCHECK_DEBUG_TOKEN`.
+6. **Deploy the rules first:** `firebase login`, then `firebase deploy --only firestore:rules`.
+   From now on the old app can no longer save, so the deck holds still for the migration.
+7. **Migrate the deck to plain data**, dry run first (details under *Migrating the old deck*). The
+   old key is the `VITE_DECK_ENCRYPTION_KEY` value in your `.env`:
    ```bash
    gcloud auth application-default login
    read -s "LEGACY_DECK_KEY?Old deck key: "; echo; export LEGACY_DECK_KEY
@@ -116,15 +124,18 @@ order: the rules go live before the new app, and the deck is migrated in between
    node tools/migrate-plaintext.mjs --project anxiety-brain-deck
    unset LEGACY_DECK_KEY
    ```
-7. **Then deploy Hosting:** `firebase deploy --only hosting` (it builds first, from your `.env`).
+8. **Then deploy Hosting:** `firebase deploy --only hosting` (it builds first, from your `.env`).
    Open https://anxiety-brain-deck.web.app and check the deck, then edit something.
-8. **Repository homepage.** On GitHub: the ⚙ next to *About* → Website →
-   `https://anxiety-brain-deck.web.app`.
-9. **Shut down Supabase.** In the Supabase dashboard, pause and then delete project
-   `qcqtyjoawhiixshnyubi`. Nothing uses it any more.
+9. **Retire the old key.** Keep `VITE_DECK_ENCRYPTION_KEY` in your password manager (it is the
+   only way to read the migration backups), then delete it from `.env`.
+10. **Enforce App Check** a day or two later: App Check → APIs → Cloud Firestore, then
+    Authentication. Once nearly all requests show as verified, click **Enforce** for both.
+11. **Repository homepage.** On GitHub: the ⚙ next to *About* → Website →
+    `https://anxiety-brain-deck.web.app`.
+12. **Shut down Supabase.** In the Supabase dashboard, pause and then delete project
+    `qcqtyjoawhiixshnyubi`. Nothing uses it any more.
 
-The old Vercel site keeps working as a permanent (301) redirect to the Firebase address
-([`vercel.json`](vercel.json)), so old links still land on the deck.
+The deck is hosted only on Firebase Hosting; there is no Vercel deployment.
 
 ## Run it locally
 
