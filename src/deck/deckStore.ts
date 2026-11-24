@@ -1,11 +1,9 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { IDLE_FOCUS } from '../brain/regions'
-import { SEED_BOXES } from '../data/medications'
 import {
   ALL_SEED_BOXES,
   DEFAULT_CURSOR_EFFECT,
-  NON_MEDICATION_SEED_BOXES,
   SEED_SECTIONS,
   makeTemplateSlideBoxes,
   type BackdropTheme,
@@ -14,8 +12,10 @@ import {
   type SlideSpec,
 } from '../data/sections'
 import { useStage } from '../stage/focusStore'
-import { verifyEditPassword } from '../sync/crypto'
-import { isCloudConfigured } from '../sync/config'
+import { isEditingConfigured } from '../sync/config'
+import type { SignInResult } from '../sync/firebase'
+import { isSyncReady } from '../sync/syncStatus'
+import { sameData, type PartData, type PartKind } from '../sync/schema'
 
 export type TextStyle = 'title' | 'heading' | 'body' | 'small'
 export type TextColor = 'white' | 'grey' | 'black'
@@ -54,6 +54,7 @@ interface DeckState {
   slide: string
   sections: Section[]
   inputMode: boolean
+  /** Signed in to the shared editor account on this tab. */
   unlocked: boolean
   promptingPassword: boolean
   selectedId: string | null
@@ -66,9 +67,17 @@ interface DeckState {
   /** Opens Input Mode if already unlocked, or opens the password gate modal. */
   requestInputMode: () => void
   cancelPasswordPrompt: () => void
-  unlockWithPassword: (password: string) => Promise<boolean>
+  /** Signs in to the shared editor account. Input mode opens once the cloud deck has loaded. */
+  unlockWithPassword: (password: string) => Promise<SignInResult>
+  /** Follows the sign-in state, which can also change in another way (a reload, or the session ending). */
+  setUnlocked: (unlocked: boolean) => void
   lockInputMode: () => void
-  replaceDeckFromCloud: (payload: { sections: Section[]; boxes: TextBox[]; format: TextFormat }) => void
+  /** Someone else's change to one section or text box. Null removes it. */
+  applyRemotePart: (kind: PartKind, id: string, data: PartData | null) => void
+  /** The whole deck, as loaded or restored from the cloud. */
+  replaceDeck: (deck: { sections: Section[]; boxes: TextBox[] }) => void
+  /** Puts sections in this order; sections it leaves out keep their place after these. */
+  orderSections: (order: string[]) => void
   addBox: () => void
   updateBox: (id: string, patch: Partial<Omit<TextBox, 'id' | 'slide'>>) => void
   removeBox: (id: string) => void
@@ -133,6 +142,38 @@ function findSectionForSlide(sections: Section[], slideId: string): Section | un
   return sections.find((sec) => sec.slides.some((sl) => sl.id === slideId))
 }
 
+/**
+ * After the sections changed underneath the presenter: keeps the current slide valid (staying in
+ * its section when that slide went away) and the stage showing it.
+ */
+function settleSlide(state: DeckState, sections: Section[]): Partial<DeckState> {
+  let section = findSectionForSlide(sections, state.slide)
+  let slide = section?.slides.find((sl) => sl.id === state.slide)
+  if (!section || !slide) {
+    const previous = findSectionForSlide(state.sections, state.slide)
+    section = sections.find((sec) => sec.id === previous?.id) ?? sections[0]
+    slide = section?.slides[0]
+  }
+  if (!section || !slide) return { sections }
+  const stage = useStage.getState()
+  if (!sameData(stage.focus, slide.focus)) stage.setFocus(slide.focus)
+  if (stage.backdrop !== section.backdrop || stage.cursorEffect !== (section.cursorEffect ?? DEFAULT_CURSOR_EFFECT)) {
+    showSectionOnStage(section)
+  }
+  if (slide.id === state.slide) return { sections }
+  return { sections, slide: slide.id, selectedId: null, editingId: null }
+}
+
+/** Clears the selection and editing of a box that is gone. */
+function forgetMissing(state: DeckState, boxes: TextBox[]): Partial<DeckState> {
+  const has = (id: string | null) => id !== null && boxes.some((b) => b.id === id)
+  return {
+    boxes,
+    ...(state.selectedId && !has(state.selectedId) && { selectedId: null }),
+    ...(state.editingId && !has(state.editingId) && { editingId: null }),
+  }
+}
+
 export const useDeck = create<DeckState>()(
   persist(
     (set, get) => ({
@@ -152,24 +193,27 @@ export const useDeck = create<DeckState>()(
       setInputMode: (on) =>
         set((s) => (on ? { inputMode: true } : { ...finishEditing(s), inputMode: false, selectedId: null })),
 
+      // Signed in and loaded: straight into input mode. Otherwise the gate asks for the password, or
+      // waits for the cloud deck, so nothing is typed into a deck that is about to be replaced.
       requestInputMode: () =>
-        set((s) => (s.unlocked ? { inputMode: true, promptingPassword: false } : { promptingPassword: true })),
+        set((s) => (s.unlocked && isSyncReady() ? { inputMode: true, promptingPassword: false } : { promptingPassword: true })),
 
       cancelPasswordPrompt: () => set({ promptingPassword: false }),
 
       unlockWithPassword: async (password) => {
-        // With Firebase, the password signs in to the shared editor account that Firestore rules let write.
-        const valid = isCloudConfigured()
-          ? await (await import('../sync/firebase')).signInEditor(password.trim())
-          : await verifyEditPassword(password)
-        if (!valid) return false
-        set({
-          unlocked: true,
-          promptingPassword: false,
-          inputMode: true,
-        })
-        return true
+        if (!isEditingConfigured()) return 'unavailable'
+        const { signIn } = await import('../sync/cloudSync')
+        const result = await signIn(password)
+        if (result === 'ok') set({ unlocked: true })
+        return result
       },
+
+      setUnlocked: (unlocked) =>
+        set((s) => {
+          if (unlocked === s.unlocked) return {}
+          if (unlocked) return { unlocked }
+          return { ...finishEditing(s), unlocked, inputMode: false, selectedId: null }
+        }),
 
       lockInputMode: () => {
         set((s) => ({
@@ -179,24 +223,43 @@ export const useDeck = create<DeckState>()(
           inputMode: false,
           selectedId: null,
         }))
-        if (isCloudConfigured()) void import('../sync/firebase').then((m) => m.signOutEditor())
+        if (isEditingConfigured()) void import('../sync/cloudSync').then((m) => m.signOut())
       },
 
-      replaceDeckFromCloud: ({ sections, boxes, format }) =>
+      applyRemotePart: (kind, id, data) =>
         set((s) => {
-          if (sections.length === 0) return {}
-          const allSlides = sections.flatMap((sec) => sec.slides.map((sl) => ({ ...sl, section: sec })))
-          const activeSlide = allSlides.find((sl) => sl.id === s.slide) ?? allSlides[0]
-          if (activeSlide) {
-            useStage.getState().setFocus(activeSlide.focus)
-            showSectionOnStage(activeSlide.section)
+          if (kind === 'box') {
+            const box = data ? ({ id, ...data } as TextBox) : null
+            const at = s.boxes.findIndex((b) => b.id === id)
+            const boxes =
+              box === null
+                ? s.boxes.filter((b) => b.id !== id)
+                : at === -1
+                  ? [...s.boxes, box]
+                  : s.boxes.map((b, i) => (i === at ? box : b))
+            return forgetMissing(s, boxes)
           }
-          return {
-            sections,
-            boxes,
-            format: format ?? s.format,
-            slide: activeSlide ? activeSlide.id : s.slide,
-          }
+          const section = data ? ({ id, ...data } as Section) : null
+          const at = s.sections.findIndex((sec) => sec.id === id)
+          const sections =
+            section === null
+              ? s.sections.filter((sec) => sec.id !== id)
+              : at === -1
+                ? [...s.sections, section]
+                : s.sections.map((sec, i) => (i === at ? section : sec))
+          return sections.length === 0 ? {} : settleSlide(s, sections)
+        }),
+
+      replaceDeck: ({ sections, boxes }) =>
+        set((s) => (sections.length === 0 ? {} : { ...settleSlide(s, sections), ...forgetMissing(s, boxes) })),
+
+      orderSections: (order) =>
+        set((s) => {
+          const rank = new Map(order.map((id, i) => [id, i]))
+          const sections = [...s.sections].sort(
+            (a, b) => (rank.get(a.id) ?? order.length + s.sections.indexOf(a)) - (rank.get(b.id) ?? order.length + s.sections.indexOf(b)),
+          )
+          return sections.every((sec, i) => sec === s.sections[i]) ? {} : { sections }
         }),
 
       addBox: () =>
@@ -413,31 +476,15 @@ export const useDeck = create<DeckState>()(
     }),
     {
       name: 'anxiety-presentation:deck',
-      version: 3,
+      version: 4,
       storage: createJSONStorage(() => localStorage),
-      // Browsers that saved boxes in earlier versions keep them and gain the full presentation sections.
-      migrate: (saved, version) => {
-        const state = saved as Partial<Pick<DeckState, 'sections' | 'boxes' | 'format'>>
-        let boxes = state.boxes ?? []
-        if (version < 2) {
-          boxes = [...boxes, ...SEED_BOXES]
-        }
-        if (version < 3) {
-          const existingIds = new Set(boxes.map((b) => b.id))
-          boxes = [...boxes, ...NON_MEDICATION_SEED_BOXES.filter((b) => !existingIds.has(b.id))]
-        }
-        return {
-          ...state,
-          sections: state.sections ?? SEED_SECTIONS,
-          boxes,
-        }
+      // The deck itself lives in the cloud, so a browser only keeps its own choice of format for new
+      // boxes. Sections and boxes saved by earlier versions are dropped: the cloud copy replaces them.
+      migrate: (saved) => {
+        const format = (saved as Partial<Pick<DeckState, 'format'>> | undefined)?.format
+        return format ? { format } : {}
       },
-      // Only the sections and slides' content are kept. Where you are and what is selected start fresh.
-      partialize: (s) => ({
-        sections: s.sections,
-        boxes: s.boxes.filter((b) => b.text.trim()),
-        format: s.format,
-      }),
+      partialize: (s) => ({ format: s.format }),
     },
   ),
 )

@@ -1,11 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { DEFAULT_CURSOR_EFFECT, type BackdropTheme, type CursorEffect } from '../data/sections'
-import { useSyncStatus } from '../sync/syncStatus'
+import { useSyncLabel, useSyncStatus, type SyncStatus } from '../sync/syncStatus'
 import { useDeck, type BoxLook, type TextColor, type TextStyle } from './deckStore'
 import { useDeckKeys } from './keys'
 import { PasswordGate } from './PasswordGate'
 import { goToSection, goToSlide } from './slides'
+import { ConflictPrompt, HistoryPanel } from './SyncDialogs'
 
 const STYLES: { value: TextStyle; label: string }[] = [
   { value: 'title', label: 'Title' },
@@ -39,12 +40,23 @@ const BACKDROPS: { value: BackdropTheme; label: string }[] = [
 export function InputControls() {
   const inputMode = useDeck((s) => s.inputMode)
   const promptingPassword = useDeck((s) => s.promptingPassword)
+  const [showHistory, setShowHistory] = useState(false)
   useDeckKeys()
+  useEffect(() => {
+    if (!inputMode) setShowHistory(false)
+  }, [inputMode])
   return (
     <>
       {!inputMode && <EnterButton />}
       <AnimatePresence>{promptingPassword && <PasswordGate key="password-gate" />}</AnimatePresence>
-      <AnimatePresence>{inputMode && <Toolbar key="toolbar" />}</AnimatePresence>
+      <AnimatePresence>{inputMode && <Toolbar key="toolbar" onShowHistory={() => setShowHistory(true)} />}</AnimatePresence>
+      {/* Dialogs sit outside the toolbar dock, which lets clicks through to the stage. */}
+      <AnimatePresence>
+        {inputMode && showHistory && <HistoryPanel key="history" onClose={() => setShowHistory(false)} />}
+      </AnimatePresence>
+      <AnimatePresence>
+        <ConflictPrompt key="conflict" />
+      </AnimatePresence>
     </>
   )
 }
@@ -91,36 +103,43 @@ function EnterButton() {
   )
 }
 
-function SyncBadge() {
-  const status = useSyncStatus((s) => s.status)
-  const errorMessage = useSyncStatus((s) => s.errorMessage)
+const STATUS_LABELS: Record<SyncStatus, string> = {
+  local: 'View only',
+  connecting: 'Connecting…',
+  saved: 'Saved',
+  saving: 'Saving…',
+  conflict: 'Conflict',
+  offline: 'Offline',
+  error: 'Not saved',
+}
 
-  const label =
-    status === 'synced'
-      ? 'E2EE Synced'
-      : status === 'saving'
-        ? 'Encrypting…'
-        : status === 'connecting'
-          ? 'Connecting…'
-          : status === 'error'
-            ? 'Sync error'
-            : 'Local E2EE'
+function SyncBadge() {
+  const status = useSyncLabel()
+  const problem = useSyncStatus((s) => s.engine?.problem ?? null)
+  const held = useSyncStatus((s) => s.engine?.held ?? 0)
+
+  const hint =
+    status === 'offline'
+      ? 'You’re offline. Your changes will save when you reconnect.'
+      : status === 'error'
+        ? problem
+        : status === 'conflict'
+          ? 'Someone else changed the same part. Choose which version to keep.'
+          : held > 0
+            ? 'Someone else changed the box you’re typing in. You’ll see both versions when you finish.'
+            : status === 'saved'
+              ? 'Every change is saved, and everyone sees it live.'
+              : null
 
   return (
-    <button
-      type="button"
-      className="sync-badge"
-      data-status={status}
-      title={errorMessage ?? 'AES-256-GCM end-to-end encrypted storage. Click to sync now.'}
-      onClick={() => void import('../sync/cloudSync').then((m) => m.pushDeckToCloud())}
-    >
-      <span className="sync-dot" data-status={status} />
-      {label}
-    </button>
+    <span className="sync-badge" role="status" aria-live="polite" title={hint ?? undefined}>
+      <span className="sync-dot" data-status={held > 0 && status === 'saved' ? 'saving' : status} />
+      {held > 0 && (status === 'saved' || status === 'saving') ? 'Edited elsewhere' : STATUS_LABELS[status]}
+    </span>
   )
 }
 
-function Toolbar() {
+function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
   const slide = useDeck((s) => s.slide)
   const sections = useDeck((s) => s.sections)
   const selected = useDeck((s) => s.boxes.find((box) => box.id === s.selectedId))
@@ -369,6 +388,16 @@ function Toolbar() {
         <span className="tool-sep" />
 
         <SyncBadge />
+
+        <button
+          type="button"
+          className="tool-icon"
+          title="Version history"
+          aria-label="Version history"
+          onClick={onShowHistory}
+        >
+          <Icon d="M8 4.5V8l2.3 1.5 M2.6 8a5.4 5.4 0 1 0 1.6-3.8 M2.4 2.6v2.6H5" />
+        </button>
 
         <button
           type="button"
