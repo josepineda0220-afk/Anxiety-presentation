@@ -14,6 +14,7 @@ import { ALL_SEED_BOXES, SEED_SECTIONS } from '../../src/data/sections'
 import { boxFromDoc, boxToData, decodeSnapshot, partDocument, sectionFromDoc, sectionToData } from '../../src/sync/schema'
 import { encryptLikeTheOldApp } from '../support/legacyEnvelope'
 import { migrate } from '../../tools/migrate-plaintext.mjs'
+import { rulesWithEditor } from '../../tools/rules-source.mjs'
 
 const PROJECT_ID = 'demo-anxiety-deck'
 const EDITOR_UID = 'editor-uid'
@@ -29,8 +30,7 @@ const quiet = () => {}
 beforeAll(async () => {
   admin = initializeApp({ projectId: PROJECT_ID }, 'migration-test')
   db = getFirestore(admin)
-  const rules = readFileSync(new URL('../../firestore.rules', import.meta.url), 'utf8').replace("'REPLACE_WITH_EDITOR_UID'", `'${EDITOR_UID}'`)
-  env = await initializeTestEnvironment({ projectId: PROJECT_ID, firestore: { rules } })
+  env = await initializeTestEnvironment({ projectId: PROJECT_ID, firestore: { rules: rulesWithEditor(EDITOR_UID) } })
 })
 
 afterAll(async () => {

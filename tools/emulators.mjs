@@ -6,9 +6,10 @@
 // The team password for this local account is "local-password". Nothing here reaches a real project:
 // the project id starts with "demo-", which the Firebase CLI keeps fully offline.
 import { spawn } from 'node:child_process'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { rulesWithEditor } from './rules-source.mjs'
 
 export const PROJECT_ID = 'demo-anxiety-deck'
 export const LOCAL_EDITOR = {
@@ -21,12 +22,7 @@ const root = fileURLToPath(new URL('..', import.meta.url))
 const workDir = join(root, '.firebase', 'emulators')
 mkdirSync(workDir, { recursive: true })
 
-const rules = readFileSync(join(root, 'firestore.rules'), 'utf8')
-if (!rules.includes("'REPLACE_WITH_EDITOR_UID'")) {
-  console.error('firestore.rules no longer has the editor UID placeholder; set LOCAL_EDITOR.uid to match it.')
-  process.exit(1)
-}
-writeFileSync(join(workDir, 'firestore.rules'), rules.replace("'REPLACE_WITH_EDITOR_UID'", `'${LOCAL_EDITOR.uid}'`))
+writeFileSync(join(workDir, 'firestore.rules'), rulesWithEditor(LOCAL_EDITOR.uid))
 writeFileSync(
   join(workDir, 'firebase.json'),
   JSON.stringify(

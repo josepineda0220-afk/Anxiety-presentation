@@ -3,7 +3,6 @@
  *   npm run test:rules
  * which starts it with a demo project id, so they can never reach a real Firebase project.
  */
-import { readFileSync } from 'node:fs'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import {
   assertFails,
@@ -27,6 +26,7 @@ import {
   type Firestore,
 } from 'firebase/firestore'
 import { SEED_SECTIONS, ALL_SEED_BOXES } from '../../src/data/sections'
+import { rulesWithEditor } from '../../tools/rules-source.mjs'
 import {
   SCHEMA_VERSION,
   boxToData,
@@ -42,15 +42,12 @@ const EDITOR_UID = 'editor-uid'
 const EDITOR_EMAIL = 'editors@anxiety-presentation.invalid'
 const DECK = 'presentations/anxiety-deck'
 
-const rulesSource = readFileSync(new URL('../../firestore.rules', import.meta.url), 'utf8')
-
 let env: RulesTestEnvironment
 
 beforeAll(async () => {
-  expect(rulesSource).toContain("'REPLACE_WITH_EDITOR_UID'")
   env = await initializeTestEnvironment({
     projectId: PROJECT_ID,
-    firestore: { rules: rulesSource.replace("'REPLACE_WITH_EDITOR_UID'", `'${EDITOR_UID}'`) },
+    firestore: { rules: rulesWithEditor(EDITOR_UID) },
   })
 })
 

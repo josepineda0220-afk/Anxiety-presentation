@@ -94,8 +94,9 @@ migrated in between.
    Users → add (or reset the password of) `editors@anxiety-presentation.invalid` with a strong
    team password: a long passphrase, not the old default. Share it only with the group and the
    professor.
-2. **Pin its UID in the rules.** Copy that user's **User UID** and replace `REPLACE_WITH_EDITOR_UID`
-   in [`firestore.rules`](firestore.rules). Until then, nobody can save anything.
+2. **Pin its UID in the rules.** Done: `editorUid()` in [`firestore.rules`](firestore.rules)
+   returns that user's **User UID**. If the account is ever deleted and recreated, it gets a new
+   UID: put it there and deploy the rules again, or nobody can save.
 3. **Delete the Vercel project** before this change reaches `main`: Vercel dashboard → the project
    → Settings → General → *Delete Project*. The deck lives only on Firebase Hosting now, and with
    `vercel.json` gone a still-connected Vercel project would publish a stray copy of the app. Old

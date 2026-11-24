@@ -15,10 +15,11 @@ service cloud.firestore {
 
     // ---- Who may write -------------------------------------------------------------------------
 
-    // The UID of the shared editor account: Firebase console -> Authentication -> Users.
-    // The rules tests swap this placeholder for a test UID; nothing can write until it is filled in.
+    // The UID of the shared editor account (editors@anxiety-presentation.invalid): Firebase console
+    // -> Authentication -> Users. If that account is ever recreated, put its new UID here and
+    // deploy the rules again. The rules tests and local emulators swap in a UID of their own.
     function editorUid() {
-      return 'REPLACE_WITH_EDITOR_UID';
+      return 'cskMj1XUGSPAHe5fIb3aH02GSV33';
     }
 
     function isEditor() {
