@@ -5,6 +5,7 @@ dist
 .env
 .env.*
 !.env.example
+!.env.emulators
 .firebase
 firebase-debug.log
 firestore-debug.log
@@ -12,3 +13,4 @@ ui-debug.log
 __pycache__
 *.blend
 *.blend1
+backups/

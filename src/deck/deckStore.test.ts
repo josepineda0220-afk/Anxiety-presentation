@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-// Tests use the default offline password check, whatever the local .env sets up.
-vi.stubEnv('VITE_EDIT_PASSWORD_HASH', '')
-vi.stubEnv('VITE_EDIT_PASSWORD', '')
+// No cloud in unit tests, whatever the local .env sets up.
 vi.stubEnv('VITE_FIREBASE_API_KEY', '')
+vi.stubEnv('VITE_EDITOR_EMAIL', '')
 
 // The store saves to localStorage, which Node does not have.
 const saved = new Map<string, string>()
@@ -19,11 +18,10 @@ globalThis.localStorage = {
 }
 
 const { STARTER_TEXT, placeNewBox, useDeck } = await import('./deckStore')
-const { MEDICATION_SLIDES, SEED_BOXES } = await import('../data/medications')
-const { ALL_SEED_BOXES, NON_MEDICATION_SEED_BOXES, SEED_SECTIONS } = await import('../data/sections')
+const { MEDICATION_SLIDES } = await import('../data/medications')
+const { ALL_SEED_BOXES, SEED_SECTIONS } = await import('../data/sections')
 const { getAllSlides, goToSection, goToSlide, stepSlide } = await import('./slides')
 const { useStage } = await import('../stage/focusStore')
-const { DEFAULT_EDIT_PASSWORD } = await import('../sync/crypto')
 
 const deck = () => useDeck.getState()
 const only = () => {
@@ -150,15 +148,19 @@ describe('switching slides', () => {
   })
 })
 
-describe('saving', () => {
-  it('keeps the sections, boxes and format, not the mode or selection', () => {
+describe('what the browser keeps', () => {
+  it('keeps only its own format for new boxes, since the deck itself lives in the cloud', () => {
     deck().addBox()
-    deck().addBox()
-    deck().updateBox(deck().boxes[1].id, { text: '' })
+    deck().applyFormat({ style: 'heading' })
     const stored = JSON.parse(localStorage.getItem('anxiety-presentation:deck')!).state
-    expect(Object.keys(stored).sort()).toEqual(['boxes', 'format', 'sections'])
-    // The box still being emptied is left out.
-    expect(stored.boxes).toHaveLength(1)
+    expect(stored).toEqual({ format: { style: 'heading', color: 'white', look: 'clear' } })
+  })
+
+  it('drops sections and boxes saved by earlier versions, keeping the format', () => {
+    const mine = { id: 'mine', slide: '2', text: 'My notes', x: 0.1, y: 0.1, style: 'body', color: 'white', look: 'clear' }
+    const format = { style: 'heading', color: 'grey', look: 'clear' }
+    const migrated = useDeck.persist.getOptions().migrate!({ boxes: [mine], sections: [], format }, 3)
+    expect(migrated).toEqual({ format })
   })
 })
 
@@ -257,39 +259,70 @@ describe('presentation sections and backdrop themes', () => {
     expect(getAllSlides().length).toBeGreaterThan(20)
   })
 
-  it('gates Input Mode behind the team password and supports locking again', async () => {
+  it('asks for the password before Input Mode, and says so when this build cannot edit', async () => {
     deck().setInputMode(false)
     deck().requestInputMode()
     expect(deck().inputMode).toBe(false)
     expect(deck().promptingPassword).toBe(true)
 
-    const wrong = await deck().unlockWithPassword('wrong')
-    expect(wrong).toBe(false)
-    expect(deck().unlocked).toBe(false)
-    expect(deck().inputMode).toBe(false)
-
-    const right = await deck().unlockWithPassword(DEFAULT_EDIT_PASSWORD)
-    expect(right).toBe(true)
-    expect(deck().unlocked).toBe(true)
-    expect(deck().inputMode).toBe(true)
-    expect(deck().promptingPassword).toBe(false)
-
-    deck().lockInputMode()
+    // No Firebase settings here, so there is no way in, and nothing falls back to a built-in password.
+    expect(await deck().unlockWithPassword('nursing2026')).toBe('unavailable')
     expect(deck().unlocked).toBe(false)
     expect(deck().inputMode).toBe(false)
   })
 
-  it('hydrates sections, boxes, and backdrop from a decrypted cloud snapshot', () => {
-    const customSections = structuredClone(SEED_SECTIONS)
-    customSections[0].backdrop = 'purple'
-    deck().replaceDeckFromCloud({
-      sections: customSections,
-      boxes: [{ id: 'cloud-1', slide: '1-1', text: 'Synced from cloud', x: 0.1, y: 0.2, style: 'body', color: 'white', look: 'frosted' }],
-      format: { style: 'heading', color: 'white', look: 'frosted' },
-    })
-    expect(deck().boxes).toHaveLength(1)
-    expect(deck().boxes[0].text).toBe('Synced from cloud')
+  it('leaves Input Mode when the editor session ends', () => {
+    useDeck.setState({ unlocked: true, inputMode: true })
+    deck().addBox()
+    deck().setUnlocked(false)
+    expect(deck().unlocked).toBe(false)
+    expect(deck().inputMode).toBe(false)
+    expect(deck().editingId).toBeNull()
+  })
+})
+
+describe('changes from the cloud', () => {
+  const remoteBox = { slide: '1-1', text: 'From someone else', x: 0.1, y: 0.2, style: 'body', color: 'white', look: 'frosted' } as const
+
+  it('loads a whole deck, keeping the current slide and showing its backdrop', () => {
+    const sections = structuredClone(SEED_SECTIONS)
+    sections[0].backdrop = 'purple'
+    deck().replaceDeck({ sections, boxes: [{ id: 'cloud-1', ...remoteBox }] })
+    expect(deck().boxes.map((b) => b.text)).toEqual(['From someone else'])
+    expect(deck().slide).toBe('1-1')
     expect(useStage.getState().backdrop).toBe('purple')
+  })
+
+  it('adds, changes and removes one box at a time', () => {
+    deck().applyRemotePart('box', 'r1', remoteBox)
+    expect(only().text).toBe('From someone else')
+    deck().applyRemotePart('box', 'r1', { ...remoteBox, text: 'Changed' })
+    expect(only().text).toBe('Changed')
+    deck().select('r1')
+    deck().applyRemotePart('box', 'r1', null)
+    expect(deck().boxes).toHaveLength(0)
+    expect(deck().selectedId).toBeNull()
+  })
+
+  it('moves to the start of the section when someone removes the slide being shown', () => {
+    goToSlide('2-2')
+    const sec2 = deck().sections.find((s) => s.id === 'sec-2')!
+    const { id: _id, ...data } = { ...sec2, slides: sec2.slides.filter((sl) => sl.id !== '2-2') }
+    deck().applyRemotePart('section', 'sec-2', data)
+    expect(deck().slide).toBe('2-1')
+  })
+
+  it('updates the stage when someone changes the backdrop of the section on screen', () => {
+    goToSection('sec-2')
+    const { id: _id, ...data } = { ...deck().sections.find((s) => s.id === 'sec-2')!, backdrop: 'purple' as const }
+    deck().applyRemotePart('section', 'sec-2', data)
+    expect(useStage.getState().backdrop).toBe('purple')
+  })
+
+  it('puts sections in the cloud’s order, keeping ones it does not list at the end', () => {
+    const ids = deck().sections.map((s) => s.id)
+    deck().orderSections([ids[2], ids[0]])
+    expect(deck().sections.map((s) => s.id)).toEqual([ids[2], ids[0], ...ids.filter((id) => id !== ids[0] && id !== ids[2])])
   })
 })
 
@@ -316,18 +349,5 @@ describe('the Medications section', () => {
   it('starts a new browser with every slide filled in across all sections', () => {
     expect(useDeck.getInitialState().boxes).toEqual(ALL_SEED_BOXES)
     expect(useDeck.getInitialState().sections).toEqual(SEED_SECTIONS)
-  })
-
-  it('adds its slides and sections to a browser that already saved boxes, keeping those boxes', () => {
-    const mine = { id: 'mine', slide: '2', text: 'My notes', x: 0.1, y: 0.1, style: 'body', color: 'white', look: 'clear' }
-    const format = { style: 'heading', color: 'grey', look: 'clear' }
-    const migrated = useDeck.persist.getOptions().migrate!({ boxes: [mine], format }, 1) as {
-      sections: unknown[]
-      boxes: unknown[]
-      format: unknown
-    }
-    expect(migrated.boxes).toEqual([mine, ...SEED_BOXES, ...NON_MEDICATION_SEED_BOXES])
-    expect(migrated.sections).toEqual(SEED_SECTIONS)
-    expect(migrated.format).toEqual(format)
   })
 })

@@ -7,8 +7,11 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.tests.json",
+    "test": "vitest run",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-anxiety-deck \"vitest run --config vitest.rules.config.ts\"",
+    "emulators": "node tools/emulators.mjs",
+    "dev:emulators": "vite --mode emulators"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -30,13 +33,19 @@
     "zustand": "^5.0.16"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "6.0.0",
     "@gltf-transform/cli": "^4.5.1",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "@types/three": "^0.187.0",
     "@vitejs/plugin-react": "^5.0.4",
+    "firebase-admin": "14.5.0",
+    "firebase-tools": "15.35.0",
     "typescript": "^5.9.3",
     "vite": "^8.3.6",
     "vitest": "^4.0.6"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

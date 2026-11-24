@@ -1,27 +1,196 @@
 rules_version = '2';
 
-// The deck is stored encrypted (AES-256-GCM, done in the browser), so anyone may read the envelope.
-// Only the shared editor account (EDITOR_EMAIL in src/sync/firebase.ts) may save it, and only in the
-// expected shape. Nothing may delete it, and every other path is closed.
+// The deck is plain data that anyone may read one document at a time. Nobody may list or query a
+// collection except the editor, who may list saved versions. Only the shared editor account may
+// write, every write must have exactly the expected fields and raise `revision` by exactly 1, and
+// nothing may ever be deleted.
+//
+// Layout (src/sync/schema.ts mirrors every limit below):
+//   presentations/{deckId}                    index: section order, box ids, snapshot bookkeeping
+//   presentations/{deckId}/sections/{id}      one section and its slides
+//   presentations/{deckId}/boxes/{id}         one text box
+//   presentations/{deckId}/versions/{seq}     append-only snapshots of the whole deck
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /presentations/{deckId} {
-      allow read: if true;
-      allow create, update: if isEditor() && isEnvelope(request.resource.data);
+
+    // ---- Who may write -------------------------------------------------------------------------
+
+    // The UID of the shared editor account (editors@anxiety-presentation.invalid): Firebase console
+    // -> Authentication -> Users. If that account is ever recreated, put its new UID here and
+    // deploy the rules again. The rules tests and local emulators swap in a UID of their own.
+    function editorUid() {
+      return 'cskMj1XUGSPAHe5fIb3aH02GSV33';
     }
 
     function isEditor() {
-      return request.auth != null
-        && request.auth.token.email == 'editors@anxiety-presentation.invalid';
+      return request.auth != null && request.auth.uid == editorUid();
     }
 
-    function isEnvelope(data) {
-      return data.keys().hasOnly(['ciphertext', 'iv', 'salt', 'updatedAt'])
-        && data.keys().hasAll(['ciphertext', 'iv', 'salt', 'updatedAt'])
-        && data.ciphertext is string && data.ciphertext.size() > 0
-        && data.iv is string && data.iv.size() <= 64
-        && data.salt is string && data.salt.size() <= 64
+    // ---- Shared checks -------------------------------------------------------------------------
+
+    function schemaVersion() {
+      return 2;
+    }
+
+    function isId(value) {
+      return value is string && value.matches('[A-Za-z0-9_-]{1,64}');
+    }
+
+    // A list of unique ids. Joining checks every element at once, since rules cannot loop.
+    function isIdList(value, maxSize) {
+      return value is list
+        && value.size() <= maxSize
+        && value.toSet().size() == value.size()
+        && (value.size() == 0 || value.join(',').matches('[A-Za-z0-9_-]{1,64}(,[A-Za-z0-9_-]{1,64})*'));
+    }
+
+    // Every document carries the same four fields. A create starts at revision 1, and each later
+    // write must name the revision it replaces plus one, so a save based on stale data is refused.
+    function isStamped(data) {
+      return data.schemaVersion == schemaVersion()
+        && data.revision is int
+        && data.revision == (resource == null ? 1 : resource.data.revision + 1)
+        && data.updatedBy == request.auth.uid
         && data.updatedAt == request.time;
+    }
+
+    function hasExactly(data, required, optional) {
+      return data.keys().hasAll(required) && data.keys().hasOnly(required.concat(optional));
+    }
+
+    function isNumberIn(value, low, high) {
+      return value is number && value >= low && value <= high;
+    }
+
+    // ---- The index document --------------------------------------------------------------------
+
+    // Snapshot bookkeeping either stays as it was, or moves on by exactly one snapshot that is
+    // written in the same batch, no sooner than 4 minutes after the last one. The app aims for
+    // every 5 minutes; the slack absorbs clock differences between devices.
+    function isValidSnapshotBump(deckId) {
+      let before = resource.data;
+      let after = request.resource.data;
+      return (after.snapshotSeq == before.snapshotSeq && after.lastSnapshotAt == before.lastSnapshotAt)
+        || (after.snapshotSeq == before.snapshotSeq + 1
+          && after.lastSnapshotAt == request.time
+          && request.time >= before.lastSnapshotAt + duration.value(240, 's')
+          && existsAfter(/databases/$(database)/documents/presentations/$(deckId)/versions/$(string(after.snapshotSeq))));
+    }
+
+    function isValidIndex(data) {
+      return hasExactly(data,
+          ['schemaVersion', 'revision', 'updatedAt', 'updatedBy', 'sectionOrder', 'boxIds', 'snapshotSeq', 'lastSnapshotAt'], [])
+        && isStamped(data)
+        && isIdList(data.sectionOrder, 60)
+        && isIdList(data.boxIds, 2000)
+        && data.snapshotSeq is int
+        && data.lastSnapshotAt is timestamp;
+    }
+
+    // ---- Sections ------------------------------------------------------------------------------
+
+    // A section keeps its slides as parallel lists of strings, one entry per slide, so each list is
+    // checked in one pass with join() and a pattern, whatever the number of slides.
+    function isListOf(value, count, separator, pattern) {
+      return value is list && value.size() == count && value.join(separator).matches(pattern);
+    }
+
+    function areValidSlides(data) {
+      let count = data.slideIds.size();
+      let region = '(amygdala|hippocampus|caudate|putamen|pallidum|thalamus|dlpfc|ofc|acc|insula)';
+      let regions = '(' + region + '(,' + region + '){0,9})?';
+      return count >= 1
+        && isIdList(data.slideIds, 30)
+        // All titles together are at most 30 lines of at most 200 characters each.
+        && isListOf(data.slideTitles, count, '\n', '[^\n]{0,200}(\n[^\n]{0,200}){0,29}')
+        && isListOf(data.slideRegions, count, ';', regions + '(;' + regions + '){0,29}')
+        && isListOf(data.slideCircuits, count, ';', '(cstc)?(;(cstc)?){0,29}');
+    }
+
+    function isValidSection(data) {
+      return hasExactly(data,
+          ['schemaVersion', 'revision', 'updatedAt', 'updatedBy', 'title', 'backdrop', 'deleted',
+            'slideIds', 'slideTitles', 'slideRegions', 'slideCircuits'],
+          ['cursorEffect'])
+        && isStamped(data)
+        && data.title is string
+        && data.title.size() >= 1
+        && data.title.size() <= 200
+        && data.backdrop in ['blue', 'purple']
+        && (!('cursorEffect' in data) || data.cursorEffect in ['part', 'ripple', 'off'])
+        && data.deleted is bool
+        && areValidSlides(data);
+    }
+
+    // ---- Text boxes ----------------------------------------------------------------------------
+
+    function isValidBox(data) {
+      return hasExactly(data,
+          ['schemaVersion', 'revision', 'updatedAt', 'updatedBy', 'slide', 'text', 'x', 'y', 'style', 'color', 'look', 'deleted'],
+          ['width', 'height'])
+        && isStamped(data)
+        && isId(data.slide)
+        && data.text is string
+        && data.text.size() <= 5000
+        && isNumberIn(data.x, 0, 1)
+        && isNumberIn(data.y, 0, 1)
+        && data.style in ['title', 'heading', 'body', 'small']
+        && data.color in ['white', 'grey', 'black']
+        && data.look in ['clear', 'frosted']
+        && (!('width' in data) || isNumberIn(data.width, 1, 200))
+        && (!('height' in data) || isNumberIn(data.height, 1, 200))
+        && data.deleted is bool;
+    }
+
+    // ---- Versions ------------------------------------------------------------------------------
+
+    // A version is only written together with the index bump that names it (see isValidSnapshotBump).
+    function isValidVersion(deckId, seq) {
+      let data = request.resource.data;
+      let indexBefore = get(/databases/$(database)/documents/presentations/$(deckId)).data;
+      let indexAfter = getAfter(/databases/$(database)/documents/presentations/$(deckId)).data;
+      return hasExactly(data,
+          ['schemaVersion', 'revision', 'updatedAt', 'updatedBy', 'seq', 'deckRevision', 'sectionCount', 'boxCount', 'deckJson'], [])
+        && isStamped(data)
+        && data.seq is int
+        && seq == string(data.seq)
+        && data.seq == indexBefore.snapshotSeq + 1
+        && indexAfter.snapshotSeq == data.seq
+        && indexAfter.lastSnapshotAt == request.time
+        && data.deckRevision is int
+        && isNumberIn(data.sectionCount, 0, 60)
+        && isNumberIn(data.boxCount, 0, 2000)
+        && data.deckJson is string
+        && data.deckJson.size() <= 900000;
+    }
+
+    // ---- Paths ---------------------------------------------------------------------------------
+
+    match /presentations/{deckId} {
+      allow get: if true;
+      allow create: if isEditor()
+        && isId(deckId)
+        && isValidIndex(request.resource.data)
+        && request.resource.data.snapshotSeq == 0
+        && request.resource.data.lastSnapshotAt == request.time;
+      allow update: if isEditor()
+        && isValidIndex(request.resource.data)
+        && isValidSnapshotBump(deckId);
+
+      match /sections/{sectionId} {
+        allow get: if true;
+        allow create, update: if isEditor() && isId(sectionId) && isValidSection(request.resource.data);
+      }
+
+      match /boxes/{boxId} {
+        allow get: if true;
+        allow create, update: if isEditor() && isId(boxId) && isValidBox(request.resource.data);
+      }
+
+      match /versions/{seq} {
+        allow get, list: if isEditor();
+        allow create: if isEditor() && isValidVersion(deckId, seq);
+      }
     }
   }
 }
