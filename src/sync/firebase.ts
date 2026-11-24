@@ -1,4 +1,5 @@
 import { getApp, getApps, initializeApp, type FirebaseApp } from 'firebase/app'
+import { ReCaptchaEnterpriseProvider, initializeAppCheck } from 'firebase/app-check'
 import {
   browserSessionPersistence,
   connectAuthEmulator,
@@ -9,7 +10,12 @@ import {
   type Auth,
 } from 'firebase/auth'
 import { connectFirestoreEmulator, initializeFirestore, type Firestore } from 'firebase/firestore'
-import { USE_EMULATORS, editorEmail, readFirebaseConfig } from './config'
+import { USE_EMULATORS, appCheckSiteKey, editorEmail, readFirebaseConfig } from './config'
+
+declare global {
+  // Read by App Check: `true` prints a debug token to the console; a string uses that token.
+  var FIREBASE_APPCHECK_DEBUG_TOKEN: boolean | string | undefined
+}
 
 interface FirebaseHandles {
   app: FirebaseApp
@@ -28,6 +34,18 @@ export function getFirebase(): FirebaseHandles | null {
   const config = readFirebaseConfig()
   if (!config) return (handles = null)
   const app = getApps().length ? getApp() : initializeApp(config)
+
+  // App Check comes first, so every Firestore and Auth request carries its token. The emulators
+  // do not check tokens, so it stays off there.
+  const siteKey = appCheckSiteKey()
+  if (siteKey && !USE_EMULATORS) {
+    // Local development: register the token App Check prints (or VITE_APPCHECK_DEBUG_TOKEN) in the
+    // Firebase console. Production builds drop this branch entirely.
+    if (import.meta.env.DEV) {
+      globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN = (import.meta.env.VITE_APPCHECK_DEBUG_TOKEN as string | undefined)?.trim() || true
+    }
+    initializeAppCheck(app, { provider: new ReCaptchaEnterpriseProvider(siteKey), isTokenAutoRefreshEnabled: true })
+  }
 
   // Signing in lasts until this tab closes (it survives a reload of the tab, not a new tab).
   const auth = initializeAuth(app, { persistence: browserSessionPersistence })
