@@ -608,7 +608,7 @@ describe('history', () => {
     expect(server.get('section', 'sec1').revision).toBe(1)
   })
 
-  it('brings back a box that was removed before the version was taken… or after', async () => {
+  it('brings back a box that was removed after the version was saved', async () => {
     const { deck, engine } = await device()
     deck.removeBox('b2')
     await settle()
