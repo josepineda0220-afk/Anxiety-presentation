@@ -217,7 +217,8 @@ export function BrainModel() {
     easing.damp(camera.position, 'z', framing.distance * (1 + m.explode * EXPLORE.pullBack), SETTLE.move, dt)
 
     // Shift the whole picture to clear the text column, with no parallax.
-    easing.damp(m, 'shift', useStage.getState().shift, SETTLE.move, dt)
+    const { shift, side } = useStage.getState()
+    easing.damp(m, 'shift', side === 'left' ? -shift : shift, SETTLE.move, dt)
     camera.setViewOffset(size.width, size.height, -m.shift * size.width, 0, size.width, size.height)
 
     // Where the brain is on screen, so a double tap on it can be told from one beside it.

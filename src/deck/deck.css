@@ -26,10 +26,14 @@
 .text-slide {
   position: absolute;
   inset: 0;
+  /* Moving between slides with the brain on different sides, the text travels with the brain. */
+  transition: translate 1.15s cubic-bezier(0.45, 0, 0.2, 1);
 }
 
 .tb {
   position: absolute;
+  /* Glides across when its slide moves the brain to the other side. Timed to the brain's easing. */
+  transition: left 1.15s cubic-bezier(0.45, 0, 0.2, 1);
   width: max-content;
   max-width: calc(var(--u) * var(--tb-max));
   padding: calc(var(--u) * 1) calc(var(--u) * 1.5);
@@ -153,6 +157,11 @@
 
 .text-layer[data-input] .tb[data-moving] {
   cursor: grabbing;
+}
+
+/* Under a finger or the mouse, a box follows at once. */
+.tb[data-held] {
+  transition: none;
 }
 
 .text-layer[data-input] .tb[data-editing] {
@@ -391,6 +400,13 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   opacity: 0.55;
+}
+
+.tool-where {
+  min-width: 2.4em;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  opacity: 0.8;
 }
 
 .tool-sep {

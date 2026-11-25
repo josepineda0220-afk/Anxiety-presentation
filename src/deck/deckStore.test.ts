@@ -46,6 +46,7 @@ beforeEach(() => {
     backdrop: 'blue',
     cursorEffect: 'part',
     particles: 'plain',
+    side: 'right',
     explore: false,
     shift: 0.17,
   })
@@ -227,6 +228,37 @@ describe('presentation sections and backdrop themes', () => {
     stepSlide(-1)
     expect(useStage.getState().particles).toBe('plain')
     expect(useStage.getState().backdrop).toBe('blue')
+  })
+
+  it('moves the brain to a slide’s side, and keeps it for slides added after it', () => {
+    deck().setSlide('1-1')
+    deck().setSlideSide('1-1', 'left')
+    expect(useStage.getState().side).toBe('left')
+    expect(deck().sections[0].slides[0].side).toBe('left')
+
+    stepSlide(1)
+    expect(useStage.getState().side).toBe('right')
+    stepSlide(-1)
+    expect(useStage.getState().side).toBe('left')
+
+    const added = deck().addSlide()
+    expect(added?.side).toBe('left')
+    expect(useStage.getState().side).toBe('left')
+
+    // The slide's text moves across with it, kept on screen.
+    useDeck.setState({
+      boxes: [
+        { ...ALL_SEED_BOXES[0], id: 'a', slide: '2-1', x: 0.1 },
+        { ...ALL_SEED_BOXES[0], id: 'b', slide: '2-1', x: 0.7 },
+        { ...ALL_SEED_BOXES[0], id: 'c', slide: '1-1', x: 0.1 },
+      ],
+    })
+    deck().setSlideSide('2-1', 'left', 0.5)
+    expect(deck().boxes.map((b) => b.x)).toEqual([0.6, 1, 0.1])
+
+    // Back to the right leaves no trace, so the slide matches one that was never moved.
+    deck().setSlideSide('1-1', 'right')
+    expect(deck().sections[0].slides[0]).not.toHaveProperty('side')
   })
 
   it('gives a new section the cursor effect of the one it was added from', () => {

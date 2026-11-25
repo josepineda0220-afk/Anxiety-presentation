@@ -214,6 +214,7 @@ export function TextBoxView({ box }: { box: TextBox }) {
       data-selected={selected || undefined}
       data-editing={editing || undefined}
       data-moving={live?.x !== undefined || undefined}
+      data-held={live !== null || undefined}
       style={{
         left: `${shown.x * 100}%`,
         top: `${shown.y * 100}%`,

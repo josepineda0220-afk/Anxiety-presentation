@@ -3,11 +3,13 @@ import { createJSONStorage, persist } from 'zustand/middleware'
 import { IDLE_FOCUS } from '../brain/regions'
 import {
   ALL_SEED_BOXES,
+  DEFAULT_BRAIN_SIDE,
   DEFAULT_CURSOR_EFFECT,
   DEFAULT_PARTICLE_STYLE,
   SEED_SECTIONS,
   makeTemplateSlideBoxes,
   type BackdropTheme,
+  type BrainSide,
   type CursorEffect,
   type ParticleStyle,
   type Section,
@@ -94,6 +96,11 @@ interface DeckState {
   setSectionCursorEffect: (sectionId: string, cursorEffect: CursorEffect) => void
   /** Sets whether a section's dots are plain or sparkle, and updates the stage if active. */
   setSectionParticles: (sectionId: string, particles: ParticleStyle) => void
+  /**
+   * Puts a slide's brain on the left or right, and moves all its text boxes across by textShift
+   * (a fraction of the screen width) to clear it.
+   */
+  setSlideSide: (slideId: string, side: BrainSide, textShift?: number) => void
   /** Renames a section title. */
   renameSection: (sectionId: string, title: string) => void
   /** Appends a new section with starter template boxes and switches to it. */
@@ -143,6 +150,12 @@ function showSectionOnStage(section: Pick<Section, 'backdrop' | 'cursorEffect' |
   useStage.getState().setParticles(section.particles ?? DEFAULT_PARTICLE_STYLE)
 }
 
+/** Gives the stage a slide's focus and the side its brain sits on. */
+function showSlideOnStage(slide: SlideSpec) {
+  useStage.getState().setFocus(slide.focus)
+  useStage.getState().setSide(slide.side ?? DEFAULT_BRAIN_SIDE)
+}
+
 function findSectionForSlide(sections: Section[], slideId: string): Section | undefined {
   return sections.find((sec) => sec.slides.some((sl) => sl.id === slideId))
 }
@@ -162,6 +175,7 @@ function settleSlide(state: DeckState, sections: Section[]): Partial<DeckState> 
   if (!section || !slide) return { sections }
   const stage = useStage.getState()
   if (!sameData(stage.focus, slide.focus)) stage.setFocus(slide.focus)
+  if (stage.side !== (slide.side ?? DEFAULT_BRAIN_SIDE)) stage.setSide(slide.side ?? DEFAULT_BRAIN_SIDE)
   if (
     stage.backdrop !== section.backdrop ||
     stage.cursorEffect !== (section.cursorEffect ?? DEFAULT_CURSOR_EFFECT) ||
@@ -338,6 +352,23 @@ export const useDeck = create<DeckState>()(
           return { sections }
         }),
 
+      setSlideSide: (slideId, side, textShift = 0) =>
+        set((s) => {
+          const boxes = textShift
+            ? s.boxes.map((b) => (b.slide === slideId ? { ...b, x: Math.min(1, Math.max(0, b.x + textShift)) } : b))
+            : s.boxes
+          const sections = s.sections.map((sec) => ({
+            ...sec,
+            slides: sec.slides.map((sl) => {
+              if (sl.id !== slideId) return sl
+              const { side: _old, ...rest } = sl
+              return side === 'left' ? { ...rest, side } : rest
+            }),
+          }))
+          if (s.slide === slideId) useStage.getState().setSide(side)
+          return { sections, boxes }
+        }),
+
       renameSection: (sectionId, title) =>
         set((s) => {
           const trimmed = title.trim()
@@ -383,7 +414,7 @@ export const useDeck = create<DeckState>()(
           selectedId: null,
           editingId: null,
         })
-        useStage.getState().setFocus(slideSpec.focus)
+        showSlideOnStage(slideSpec)
         showSectionOnStage(newSection)
         return newSection
       },
@@ -403,7 +434,7 @@ export const useDeck = create<DeckState>()(
           if (removedSlideIds.has(s.slide)) {
             const nextSection = sections[Math.min(index, sections.length - 1)]
             const nextSlide = nextSection.slides[0]
-            useStage.getState().setFocus(nextSlide.focus)
+            showSlideOnStage(nextSlide)
             showSectionOnStage(nextSection)
             return {
               ...cleaned,
@@ -429,10 +460,13 @@ export const useDeck = create<DeckState>()(
 
         const slideNumber = targetSec.slides.length + 1
         const slideId = `slide-${newId()}`
+        // A new slide keeps the layout of the one it was added from.
+        const fromSlide = targetSec.slides.find((sl) => sl.id === s.slide)
         const newSlide: SlideSpec = {
           id: slideId,
           title: `${targetSec.title} (${slideNumber})`,
           focus: IDLE_FOCUS,
+          ...(fromSlide?.side === 'left' && { side: 'left' as const }),
         }
         const templateBoxes: TextBox[] = makeTemplateSlideBoxes(
           targetSec.title,
@@ -455,7 +489,7 @@ export const useDeck = create<DeckState>()(
           selectedId: null,
           editingId: null,
         })
-        useStage.getState().setFocus(newSlide.focus)
+        showSlideOnStage(newSlide)
         showSectionOnStage(targetSec)
         return newSlide
       },
@@ -477,7 +511,7 @@ export const useDeck = create<DeckState>()(
 
           if (s.slide === targetSlideId) {
             const nextSlide = remainingSlides[Math.min(slideIndex, remainingSlides.length - 1)]
-            useStage.getState().setFocus(nextSlide.focus)
+            showSlideOnStage(nextSlide)
             showSectionOnStage(section)
             return {
               ...cleaned,
