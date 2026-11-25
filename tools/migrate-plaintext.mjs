@@ -93,7 +93,7 @@ export function buildDeck(payload) {
       slideIds.add(slide.id)
       const regions = (slide.focus?.regions ?? []).filter((region) => REGIONS.has(region))
       const circuits = (slide.focus?.circuits ?? []).includes('cstc') ? ['cstc'] : []
-      return { id: slide.id, title: slideTitle, focus: { regions, circuits } }
+      return { id: slide.id, title: slideTitle, focus: { regions, circuits }, ...(slide.side === 'left' && { side: 'left' }) }
     })
     const backdrop = ['purple', 'pink', 'black'].includes(section.backdrop) ? section.backdrop : 'blue'
     const cursorEffect = section.cursorEffect === 'ripple' || section.cursorEffect === 'off' ? section.cursorEffect : undefined
@@ -105,6 +105,7 @@ export function buildDeck(payload) {
       slideTitles: cleanSlides.map((s) => s.title),
       slideRegions: cleanSlides.map((s) => s.focus.regions.join(',')),
       slideCircuits: cleanSlides.map((s) => s.focus.circuits.join(',')),
+      ...(cleanSlides.some((s) => s.side === 'left') && { slideSides: cleanSlides.map((s) => (s.side === 'left' ? 'left' : '')) }),
       deleted: false,
     }
     snapshotSections[section.id] = { ...content, slides: cleanSlides }

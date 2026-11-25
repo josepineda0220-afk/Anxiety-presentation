@@ -104,14 +104,15 @@ service cloud.firestore {
         // All titles together are at most 30 lines of at most 200 characters each.
         && isListOf(data.slideTitles, count, '\n', '[^\n]{0,200}(\n[^\n]{0,200}){0,29}')
         && isListOf(data.slideRegions, count, ';', regions + '(;' + regions + '){0,29}')
-        && isListOf(data.slideCircuits, count, ';', '(cstc)?(;(cstc)?){0,29}');
+        && isListOf(data.slideCircuits, count, ';', '(cstc)?(;(cstc)?){0,29}')
+        && (!('slideSides' in data) || isListOf(data.slideSides, count, ';', '(left)?(;(left)?){0,29}'));
     }
 
     function isValidSection(data) {
       return hasExactly(data,
           ['schemaVersion', 'revision', 'updatedAt', 'updatedBy', 'title', 'backdrop', 'deleted',
             'slideIds', 'slideTitles', 'slideRegions', 'slideCircuits'],
-          ['cursorEffect', 'particles'])
+          ['cursorEffect', 'particles', 'slideSides'])
         && isStamped(data)
         && data.title is string
         && data.title.size() >= 1

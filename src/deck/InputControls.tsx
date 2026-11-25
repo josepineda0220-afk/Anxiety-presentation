@@ -1,9 +1,12 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { flushSync } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
 import {
+  DEFAULT_BRAIN_SIDE,
   DEFAULT_CURSOR_EFFECT,
   DEFAULT_PARTICLE_STYLE,
   type BackdropTheme,
+  type BrainSide,
   type CursorEffect,
   type ParticleStyle,
 } from '../data/sections'
@@ -11,7 +14,9 @@ import { useSyncLabel, useSyncStatus, type SyncStatus } from '../sync/syncStatus
 import { shownTextFormat, useDeck, type BoxLook, type TextColor, type TextStyle } from './deckStore'
 import { useDeckKeys } from './keys'
 import { PasswordGate } from './PasswordGate'
-import { goToSection, goToSlide } from './slides'
+import { goToSection, goToSlide, stepSlide } from './slides'
+import { beginEditing, finishEditing } from './TextBox'
+import { mirrorShift } from './TextLayer'
 import { ConflictPrompt, HistoryPanel } from './SyncDialogs'
 import { noteToolbarPress } from './TextBox'
 
@@ -45,6 +50,33 @@ const BACKDROPS: { value: BackdropTheme; label: string }[] = [
   { value: 'pink', label: 'Pink' },
   { value: 'black', label: 'Black' },
 ]
+
+const BRAIN_SIDES: { value: BrainSide; label: string }[] = [
+  { value: 'left', label: 'Left' },
+  { value: 'right', label: 'Right' },
+]
+
+const COLLAPSED_KEY = 'deck-tools-collapsed'
+
+/** Whether the toolbars are folded away, remembered on this device. */
+function useCollapsed() {
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(COLLAPSED_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+  const set = (next: boolean) => {
+    setCollapsed(next)
+    try {
+      localStorage.setItem(COLLAPSED_KEY, next ? '1' : '0')
+    } catch {
+      // Private browsing: it just won't be remembered.
+    }
+  }
+  return [collapsed, set] as const
+}
 
 const PARTICLES: { value: ParticleStyle; label: string; hint: string }[] = [
   { value: 'plain', label: 'Plain', hint: 'the dots are soft plain specks' },
@@ -157,23 +189,144 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
   const slide = useDeck((s) => s.slide)
   const sections = useDeck((s) => s.sections)
   const selected = useDeck((s) => s.boxes.find((box) => box.id === s.selectedId))
+  const editingId = useDeck((s) => s.editingId)
+  const [collapsed, setCollapsed] = useCollapsed()
+  // The kind of pointer that pressed a section tab: a tap on the open tab renames it on a touch screen.
+  const tabPointer = useRef('mouse')
   const format = useDeck((s) => s.format)
   const textStyle = useDeck((s) => shownTextFormat(s, 'style'))
   const textColor = useDeck((s) => shownTextFormat(s, 'color'))
   const deck = useDeck.getState()
 
   const activeSection = sections.find((sec) => sec.slides.some((sl) => sl.id === slide)) ?? sections[0]
+  const currentSlide = activeSection?.slides.find((sl) => sl.id === slide)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [draftTitle, setDraftTitle] = useState('')
 
   // With a box selected the box controls show and change that box. Otherwise they set up the next one.
   const shown = selected ?? format
 
+  const startRename = (id: string, title: string) => {
+    // Rendered at once, so the field takes focus inside the tap and the on-screen keyboard opens.
+    flushSync(() => {
+      setRenamingId(id)
+      setDraftTitle(title)
+    })
+  }
+
+  // The text moves across to the other side with the brain.
+  const setSide = (slideId: string, side: BrainSide) => {
+    const current = sections.flatMap((sec) => sec.slides).find((sl) => sl.id === slideId)
+    if ((current?.side ?? DEFAULT_BRAIN_SIDE) === side) return
+    deck.setSlideSide(slideId, side, mirrorShift(slideId))
+  }
+
+  // A new slide keeps the brain's side, so its starter text, laid out for the left, moves across too.
+  const addSlide = (sectionId: string) => {
+    let added: ReturnType<typeof deck.addSlide> = null
+    flushSync(() => {
+      added = deck.addSlide(sectionId)
+    })
+    const slideAdded = added as ReturnType<typeof deck.addSlide>
+    if (slideAdded?.side === 'left') deck.setSlideSide(slideAdded.id, 'left', mirrorShift(slideAdded.id))
+  }
+
+  const addSection = () => {
+    const added = deck.addSection()
+    // Straight into naming it, with the placeholder name selected to type over.
+    startRename(added.id, added.title)
+  }
+
+  const removeSection = () => {
+    if (!activeSection) return
+    const slides = activeSection.slides.length
+    const message = `Remove the section "${activeSection.title}" and its ${slides} slide${slides === 1 ? '' : 's'}?`
+    if (window.confirm(message)) deck.removeSection(activeSection.id)
+  }
+
+  const addBox = () => {
+    flushSync(() => deck.addBox())
+    const id = useDeck.getState().editingId
+    if (id) beginEditing(id)
+  }
+
   const commitRename = () => {
     if (renamingId && draftTitle.trim()) {
       deck.renameSection(renamingId, draftTitle)
     }
     setRenamingId(null)
+  }
+
+  const slideIndex = activeSection ? activeSection.slides.findIndex((s) => s.id === slide) : -1
+  const sectionIndex = activeSection ? sections.indexOf(activeSection) : -1
+  const editButton = editingId ? (
+    <button type="button" className="tool-action" title="Finish typing (Esc)" onClick={finishEditing}>
+      <Icon d="M3.5 8.5l3 3 6-7" />
+      Finish
+    </button>
+  ) : (
+    <button
+      type="button"
+      className="tool-action"
+      disabled={!selected}
+      title="Edit the selected box's text (Enter)"
+      onClick={() => selected && beginEditing(selected.id)}
+    >
+      <Icon d="M10.6 2.6l2.8 2.8L5.2 13.6H2.4v-2.8z" />
+      Edit text
+    </button>
+  )
+
+  if (collapsed) {
+    return (
+      <div className="toolbar-dock">
+        <motion.div
+          className="toolbar toolbar-compact"
+          role="toolbar"
+          aria-label="Input mode"
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 14 }}
+          transition={{ duration: 0.2, ease: 'easeOut' }}
+          onMouseDown={(event) => event.preventDefault()}
+        >
+          <button
+            type="button"
+            className="tool-action"
+            title="Show all the tools"
+            aria-expanded={false}
+            onClick={() => setCollapsed(false)}
+          >
+            <Icon d="M4 10l4-4 4 4" />
+            Tools
+          </button>
+          {activeSection && (
+            <div className="tool-group" aria-label="Slide">
+              <button type="button" className="tool-icon" title="Previous slide" aria-label="Previous slide" onClick={() => stepSlide(-1)}>
+                <Icon d="M10 3.5L5.5 8l4.5 4.5" />
+              </button>
+              <span className="tool-where" title={`${activeSection.title}, slide ${slideIndex + 1}`}>
+                {sectionIndex + 1}.{slideIndex + 1}
+              </span>
+              <button type="button" className="tool-icon" title="Next slide" aria-label="Next slide" onClick={() => stepSlide(1)}>
+                <Icon d="M6 3.5L10.5 8 6 12.5" />
+              </button>
+            </div>
+          )}
+          <span className="tool-sep" />
+          <button type="button" className="tool-add" onClick={addBox}>
+            <Icon d="M8 3v10 M3 8h10" />
+            Text box
+          </button>
+          {editButton}
+          <span className="tool-sep" />
+          <SyncBadge />
+          <button type="button" className="tool-done" title="Leave input mode (Esc)" onClick={() => deck.setInputMode(false)}>
+            Done
+          </button>
+        </motion.div>
+      </div>
+    )
   }
 
   return (
@@ -185,8 +338,8 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
         exit={{ opacity: 0 }}
         transition={{ duration: 0.2 }}
       >
-        Drag a box to move it · Drag its handles to resize · Double-click a box or section tab to edit text · Size and colour
-        apply to selected words, or to what you type next · Esc when done
+        Drag a box to move it · Drag its handles to resize · Double-click a box, or tap it again, to edit its text · Size and
+        colour apply to selected words, or to what you type next · Fold the tools away with the arrow
       </motion.p>
 
       <motion.div
@@ -212,6 +365,7 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
                   className="section-rename-input"
                   value={draftTitle}
                   autoFocus
+                  onFocus={(e) => e.currentTarget.select()}
                   onChange={(e) => setDraftTitle(e.target.value)}
                   onBlur={commitRename}
                   onKeyDown={(e) => {
@@ -227,11 +381,16 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
                 type="button"
                 className="tool-section"
                 aria-pressed={isActive}
-                title={`${index + 1}. ${sec.title} (double-click to rename)`}
-                onClick={() => goToSection(sec.id)}
+                title={`${index + 1}. ${sec.title} (double-click, or tap again, to rename)`}
+                onPointerDown={(event) => {
+                  tabPointer.current = event.pointerType
+                }}
+                onClick={() => {
+                  if (isActive && tabPointer.current !== 'mouse') startRename(sec.id, sec.title)
+                  else goToSection(sec.id)
+                }}
                 onDoubleClick={() => {
-                  setRenamingId(sec.id)
-                  setDraftTitle(sec.title)
+                  if (tabPointer.current === 'mouse') startRename(sec.id, sec.title)
                 }}
               >
                 <span className="section-theme-dot" data-backdrop={sec.backdrop} />
@@ -246,24 +405,29 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
         <span className="tool-sep" />
 
         <div className="tool-group" aria-label="Manage sections">
-          <button
-            type="button"
-            className="tool-action"
-            title="Add new section"
-            onClick={() => deck.addSection()}
-          >
+          <button type="button" className="tool-action" title="Add a new section" onClick={addSection}>
             <Icon d="M8 3v10 M3 8h10" />
             Section
           </button>
           <button
             type="button"
-            className="tool-icon"
-            disabled={sections.length <= 1}
-            title="Remove current section"
-            aria-label="Remove current section"
-            onClick={() => activeSection && deck.removeSection(activeSection.id)}
+            className="tool-action"
+            disabled={!activeSection}
+            title="Rename the current section"
+            onClick={() => activeSection && startRename(activeSection.id, activeSection.title)}
           >
-            <Icon d="M3 8h10" />
+            <Icon d="M10.6 2.6l2.8 2.8L5.2 13.6H2.4v-2.8z" />
+            Rename
+          </button>
+          <button
+            type="button"
+            className="tool-action"
+            disabled={sections.length <= 1}
+            title="Remove the current section and its slides"
+            onClick={removeSection}
+          >
+            <Icon d="M3 4.5h10 M6.3 4.5V2.8h3.4v1.7 M4.6 4.5l.6 8.7h5.6l.6-8.7" />
+            Remove
           </button>
         </div>
 
@@ -363,7 +527,7 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
               className="tool-icon"
               title="Add slide to this section"
               aria-label="Add slide to this section"
-              onClick={() => deck.addSlide(activeSection.id)}
+              onClick={() => addSlide(activeSection.id)}
             >
               <Icon d="M8 3.5v9 M3.5 8h9" />
             </button>
@@ -380,12 +544,35 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
           </div>
         )}
 
+        {currentSlide && (
+          <>
+            <span className="tool-sep" />
+            <div className="tool-group" role="radiogroup" aria-label="Brain side on this slide">
+              <span className="tool-label">Brain</span>
+              {BRAIN_SIDES.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={(currentSlide.side ?? DEFAULT_BRAIN_SIDE) === option.value}
+                  title={`Put the brain on the ${option.label.toLowerCase()} of this slide; the text moves to the other side`}
+                  onClick={() => setSide(currentSlide.id, option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
         <span className="tool-sep" />
 
-        <button type="button" className="tool-add" onClick={deck.addBox}>
+        <button type="button" className="tool-add" onClick={addBox}>
           <Icon d="M8 3v10 M3 8h10" />
           Text box
         </button>
+
+        {editButton}
 
         <span className="tool-sep" />
 
@@ -450,6 +637,17 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
           onClick={() => deck.lockInputMode()}
         >
           <Icon d="M4.5 7V5.2a3.5 3.5 0 0 1 7 0V7 M3.5 7h9v6.5h-9z" />
+        </button>
+
+        <button
+          type="button"
+          className="tool-icon"
+          title="Fold the tools away"
+          aria-label="Fold the tools away"
+          aria-expanded
+          onClick={() => setCollapsed(true)}
+        >
+          <Icon d="M4 6l4 4 4-4" />
         </button>
 
         <button type="button" className="tool-done" title="Leave input mode (Esc)" onClick={() => deck.setInputMode(false)}>

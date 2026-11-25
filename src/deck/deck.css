@@ -26,10 +26,14 @@
 .text-slide {
   position: absolute;
   inset: 0;
+  /* Moving between slides with the brain on different sides, the text travels with the brain. */
+  transition: translate 1.15s cubic-bezier(0.45, 0, 0.2, 1);
 }
 
 .tb {
   position: absolute;
+  /* Glides across when its slide moves the brain to the other side. Timed to the brain's easing. */
+  transition: left 1.15s cubic-bezier(0.45, 0, 0.2, 1);
   width: max-content;
   max-width: calc(var(--u) * var(--tb-max));
   padding: calc(var(--u) * 1) calc(var(--u) * 1.5);
@@ -177,12 +181,18 @@
 
 .text-layer[data-input] .tb {
   cursor: grab;
+  /* A finger on a box drags it, rather than scrolling or zooming the page. */
   touch-action: none;
+  /* And a long press does not bring up the copy and share menu. */
+  -webkit-touch-callout: none;
 }
 
-.text-layer[data-input] .tb:hover {
-  outline: 1px dashed rgb(255 255 255 / 40%);
-  outline-offset: 5px;
+/* Only a real hover: on a touch screen it would stick to whatever was last tapped. */
+@media (hover: hover) {
+  .text-layer[data-input] .tb:hover {
+    outline: 1px dashed rgb(255 255 255 / 40%);
+    outline-offset: 5px;
+  }
 }
 
 .text-layer[data-input] .tb[data-selected] {
@@ -194,10 +204,18 @@
   cursor: grabbing;
 }
 
+/* Under a finger or the mouse, a box follows at once. */
+.tb[data-held] {
+  transition: none;
+}
+
 .text-layer[data-input] .tb[data-editing] {
   cursor: text;
   user-select: text;
   -webkit-user-select: text;
+  -webkit-touch-callout: default;
+  /* While typing, a finger places the caret and drags the selection handles. */
+  touch-action: manipulation;
 }
 
 /* Drag to set the size of the box. Each handle sits on the selection outline. */
@@ -242,6 +260,37 @@
   height: 13px;
   border-radius: 4px;
   cursor: nwse-resize;
+}
+
+/* Fingers need bigger handles and bigger targets around them. */
+@media (pointer: coarse) {
+  .tb-handle::before {
+    inset: -14px;
+  }
+
+  .tb-handle[data-handle='width'] {
+    right: -14px;
+    width: 12px;
+    height: 34px;
+  }
+
+  .tb-handle[data-handle='height'] {
+    bottom: -14px;
+    width: 34px;
+    height: 12px;
+  }
+
+  .tb-handle[data-handle='both'] {
+    right: -16px;
+    bottom: -16px;
+    width: 18px;
+    height: 18px;
+  }
+
+  .toolbar button {
+    min-width: 40px;
+    height: 40px;
+  }
 }
 
 /* Controls */
@@ -396,6 +445,13 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   opacity: 0.55;
+}
+
+.tool-where {
+  min-width: 2.4em;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  opacity: 0.8;
 }
 
 .tool-sep {

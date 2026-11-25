@@ -22,10 +22,18 @@ export type ParticleStyle = 'plain' | 'sparkle'
 /** For sections saved before the option existed. */
 export const DEFAULT_PARTICLE_STYLE: ParticleStyle = 'plain'
 
+/** Which side of the screen the brain sits on. The text boxes take the other side. */
+export type BrainSide = 'left' | 'right'
+
+/** For slides saved before the option existed: the brain on the right, text on the left. */
+export const DEFAULT_BRAIN_SIDE: BrainSide = 'right'
+
 export interface SlideSpec {
   id: string
   title: string
   focus: Focus
+  /** Left out, it is DEFAULT_BRAIN_SIDE. */
+  side?: BrainSide
 }
 
 export interface Section {

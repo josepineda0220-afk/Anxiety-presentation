@@ -13,6 +13,7 @@ import {
   sectionFromDoc,
   sectionToData,
   snapshotToDeck,
+  storedContent,
 } from './schema'
 
 describe('stored documents', () => {
@@ -62,6 +63,20 @@ describe('stored documents', () => {
     const section = { ...SEED_SECTIONS[0], cursorEffect: 'part' as const }
     expect(sectionToData(section)).not.toHaveProperty('cursorEffect')
     expect(sameData(sectionToData(section), sectionToData(SEED_SECTIONS[0]))).toBe(true)
+  })
+
+  it('saves which side each slide puts the brain on, only when one is on the left', () => {
+    const plain = SEED_SECTIONS[0]
+    expect(sectionToData({ ...plain, slides: plain.slides.map((s) => ({ ...s, side: 'right' as const })) })).toEqual(
+      sectionToData(plain),
+    )
+    const moved = { ...plain, slides: plain.slides.map((s, i) => (i === 0 ? { ...s, side: 'left' as const } : s)) }
+    expect(sectionFromDoc(sectionToData(moved))?.slides[0].side).toBe('left')
+    // As written to Firestore: one list entry per slide, and no list at all when none is on the left.
+    const stored = storedContent('section', sectionToData(moved))
+    expect(stored.slideSides).toEqual(moved.slides.map((_, i) => (i === 0 ? 'left' : '')))
+    expect(sectionFromDoc(stored)?.slides.map((s) => s.side)).toEqual(moved.slides.map((_, i) => (i === 0 ? 'left' : undefined)))
+    expect(storedContent('section', sectionToData(plain))).not.toHaveProperty('slideSides')
   })
 
   it('saves sparkle dots and the pink and black backdrops, and reads them back', () => {

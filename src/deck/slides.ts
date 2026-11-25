@@ -1,5 +1,6 @@
 import { MEDICATION_SLIDES } from '../data/medications'
 import {
+  DEFAULT_BRAIN_SIDE,
   DEFAULT_CURSOR_EFFECT,
   DEFAULT_PARTICLE_STYLE,
   type BackdropTheme,
@@ -39,6 +40,7 @@ export function goToSlide(id: string) {
   const slide = getAllSlides().find((s) => s.id === id)
   if (!slide) return
   useStage.getState().setFocus(slide.focus)
+  useStage.getState().setSide(slide.side ?? DEFAULT_BRAIN_SIDE)
   useStage.getState().setBackdrop(slide.backdrop)
   useStage.getState().setCursorEffect(slide.cursorEffect)
   useStage.getState().setParticles(slide.particles)

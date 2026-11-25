@@ -100,12 +100,19 @@ function cleanFocus(focus: SlideSpec['focus']): SlideSpec['focus'] {
   return { regions: [...focus.regions], circuits: [...focus.circuits] }
 }
 
+/** A slide as saved. The brain's side is kept only when it is not the default, like the section options. */
+function cleanSlide(slide: SlideSpec): SlideSpec {
+  const clean: SlideSpec = { id: slide.id, title: slide.title, focus: cleanFocus(slide.focus) }
+  if (slide.side === 'left') clean.side = 'left'
+  return clean
+}
+
 /** A section's content. Fields that are left out stay left out, because Firestore cannot store undefined. */
 export function sectionToData(section: Section): SectionData {
   const data: SectionData = {
     title: section.title,
     backdrop: section.backdrop,
-    slides: section.slides.map((slide) => ({ id: slide.id, title: slide.title, focus: cleanFocus(slide.focus) })),
+    slides: section.slides.map(cleanSlide),
   }
   if (section.cursorEffect && section.cursorEffect !== DEFAULT_CURSOR_EFFECT) data.cursorEffect = section.cursorEffect
   if (section.particles && section.particles !== DEFAULT_PARTICLE_STYLE) data.particles = section.particles
@@ -124,31 +131,42 @@ interface StoredSlides {
   slideRegions: string[]
   /** 'cstc' or ''. */
   slideCircuits: string[]
+  /** 'left' or '', for the brain's side. Left out when every slide has the brain on the right. */
+  slideSides?: string[]
 }
 
 function slidesToStored(slides: SlideSpec[]): StoredSlides {
-  return {
+  const stored: StoredSlides = {
     slideIds: slides.map((slide) => slide.id),
     slideTitles: slides.map((slide) => slide.title),
     slideRegions: slides.map((slide) => slide.focus.regions.join(',')),
     slideCircuits: slides.map((slide) => slide.focus.circuits.join(',')),
   }
+  if (slides.some((slide) => slide.side === 'left')) {
+    stored.slideSides = slides.map((slide) => (slide.side === 'left' ? 'left' : ''))
+  }
+  return stored
 }
 
 function slidesFromStored(raw: Record<string, unknown>): SlideSpec[] | null {
-  const { slideIds, slideTitles, slideRegions, slideCircuits } = raw
+  const { slideIds, slideTitles, slideRegions, slideCircuits, slideSides } = raw
   if (![slideIds, slideTitles, slideRegions, slideCircuits].every(Array.isArray)) return null
+  const sides = Array.isArray(slideSides) ? (slideSides as unknown[]) : []
   const ids = slideIds as unknown[]
-  return ids.map((id, i) => ({
-    id: String(id),
-    title: String((slideTitles as unknown[])[i] ?? ''),
-    focus: {
-      regions: String((slideRegions as unknown[])[i] ?? '')
-        .split(',')
-        .filter((region): region is SlideSpec['focus']['regions'][number] => (REGION_IDS as readonly string[]).includes(region)),
-      circuits: String((slideCircuits as unknown[])[i] ?? '') === 'cstc' ? ['cstc'] : [],
-    },
-  }))
+  return ids.map((id, i) => {
+    const slide: SlideSpec = {
+      id: String(id),
+      title: String((slideTitles as unknown[])[i] ?? ''),
+      focus: {
+        regions: String((slideRegions as unknown[])[i] ?? '')
+          .split(',')
+          .filter((region): region is SlideSpec['focus']['regions'][number] => (REGION_IDS as readonly string[]).includes(region)),
+        circuits: String((slideCircuits as unknown[])[i] ?? '') === 'cstc' ? ['cstc'] : [],
+      },
+    }
+    if (sides[i] === 'left') slide.side = 'left'
+    return slide
+  })
 }
 
 /**
@@ -179,7 +197,7 @@ function readSection(raw: Record<string, unknown>): SectionData | null {
   if (typeof raw.title !== 'string') return null
   if (!(BACKDROP_THEMES as readonly unknown[]).includes(raw.backdrop)) return null
   const slides = Array.isArray(raw.slides)
-    ? (raw.slides as SlideSpec[]).map((slide) => ({ id: slide.id, title: slide.title, focus: cleanFocus(slide.focus) }))
+    ? (raw.slides as SlideSpec[]).map(cleanSlide)
     : slidesFromStored(raw)
   if (!slides) return null
   const section: SectionData = { title: raw.title, backdrop: raw.backdrop as BackdropTheme, slides }
