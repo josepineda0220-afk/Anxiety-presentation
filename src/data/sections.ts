@@ -2,7 +2,10 @@ import { IDLE_FOCUS, type Focus } from '../brain/regions'
 import type { TextBox } from '../deck/deckStore'
 import { MEDICATION_SLIDES, SEED_BOXES as MEDICATION_SEED_BOXES } from './medications'
 
-export type BackdropTheme = 'blue' | 'purple'
+export type BackdropTheme = 'blue' | 'purple' | 'pink' | 'black'
+
+/** Every backdrop, for checking what comes back from storage. */
+export const BACKDROP_THEMES: readonly BackdropTheme[] = ['blue', 'purple', 'pink', 'black']
 
 /**
  * What the background does around the cursor: the dots move out of its way ('part'), or rings
@@ -12,6 +15,12 @@ export type CursorEffect = 'part' | 'ripple' | 'off'
 
 /** For sections saved before the option existed. */
 export const DEFAULT_CURSOR_EFFECT: CursorEffect = 'part'
+
+/** How the drifting dots look: soft plain specks, or glitter that catches the light and flashes. */
+export type ParticleStyle = 'plain' | 'sparkle'
+
+/** For sections saved before the option existed. */
+export const DEFAULT_PARTICLE_STYLE: ParticleStyle = 'plain'
 
 export interface SlideSpec {
   id: string
@@ -25,6 +34,8 @@ export interface Section {
   backdrop: BackdropTheme
   /** Left out, it is DEFAULT_CURSOR_EFFECT. */
   cursorEffect?: CursorEffect
+  /** Left out, it is DEFAULT_PARTICLE_STYLE. */
+  particles?: ParticleStyle
   slides: SlideSpec[]
 }
 

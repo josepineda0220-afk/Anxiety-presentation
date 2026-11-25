@@ -3,7 +3,7 @@ import { Canvas } from '@react-three/fiber'
 import { Environment, Lightformer } from '@react-three/drei'
 import { Bloom, EffectComposer, Noise, ToneMapping, Vignette } from '@react-three/postprocessing'
 import { BlendFunction, ToneMappingMode } from 'postprocessing'
-import { Backdrop, BACKDROP } from './Backdrop'
+import { Backdrop, BACKDROP, RimLight } from './Backdrop'
 import { BrainModel } from './BrainModel'
 
 function Lighting() {
@@ -12,6 +12,7 @@ function Lighting() {
       <ambientLight intensity={0.05} />
       <directionalLight position={[-3.5, 4.5, 5]} intensity={1.9} color="#fff1e6" />
       <directionalLight position={[5, 1.5, -3]} intensity={1.5} color="#a8c8ff" />
+      <RimLight />
       <Environment resolution={256} frames={1}>
         <Lightformer form="rect" intensity={1.5} color="#fff3ea" position={[-4, 5, 6]} scale={[9, 6, 1]} />
         <Lightformer form="rect" intensity={1.4} color="#9fc2ff" position={[7, 1, -2]} rotation-y={-Math.PI / 2} scale={[8, 7, 1]} />

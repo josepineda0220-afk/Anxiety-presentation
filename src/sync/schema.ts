@@ -12,7 +12,14 @@
  *
  * This module has no Firebase imports, so tests and the main bundle can use it freely.
  */
-import { DEFAULT_CURSOR_EFFECT, type Section, type SlideSpec } from '../data/sections'
+import {
+  BACKDROP_THEMES,
+  DEFAULT_CURSOR_EFFECT,
+  DEFAULT_PARTICLE_STYLE,
+  type BackdropTheme,
+  type Section,
+  type SlideSpec,
+} from '../data/sections'
 import type { TextBox } from '../deck/deckStore'
 
 /** 1 was the encrypted single-document envelope. */
@@ -99,6 +106,7 @@ export function sectionToData(section: Section): SectionData {
     slides: section.slides.map((slide) => ({ id: slide.id, title: slide.title, focus: cleanFocus(slide.focus) })),
   }
   if (section.cursorEffect && section.cursorEffect !== DEFAULT_CURSOR_EFFECT) data.cursorEffect = section.cursorEffect
+  if (section.particles && section.particles !== DEFAULT_PARTICLE_STYLE) data.particles = section.particles
   return data
 }
 
@@ -165,13 +173,14 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 /** Reads a section from its app shape (`slides`) or its stored shape (`slideIds` and friends). */
 function readSection(raw: Record<string, unknown>): SectionData | null {
   if (typeof raw.title !== 'string') return null
-  if (raw.backdrop !== 'blue' && raw.backdrop !== 'purple') return null
+  if (!(BACKDROP_THEMES as readonly unknown[]).includes(raw.backdrop)) return null
   const slides = Array.isArray(raw.slides)
     ? (raw.slides as SlideSpec[]).map((slide) => ({ id: slide.id, title: slide.title, focus: cleanFocus(slide.focus) }))
     : slidesFromStored(raw)
   if (!slides) return null
-  const section: SectionData = { title: raw.title, backdrop: raw.backdrop, slides }
+  const section: SectionData = { title: raw.title, backdrop: raw.backdrop as BackdropTheme, slides }
   if (raw.cursorEffect === 'ripple' || raw.cursorEffect === 'off') section.cursorEffect = raw.cursorEffect
+  if (raw.particles === 'sparkle') section.particles = raw.particles
   return section
 }
 

@@ -95,9 +95,10 @@ export function buildDeck(payload) {
       const circuits = (slide.focus?.circuits ?? []).includes('cstc') ? ['cstc'] : []
       return { id: slide.id, title: slideTitle, focus: { regions, circuits } }
     })
-    const backdrop = section.backdrop === 'purple' ? 'purple' : 'blue'
+    const backdrop = ['purple', 'pink', 'black'].includes(section.backdrop) ? section.backdrop : 'blue'
     const cursorEffect = section.cursorEffect === 'ripple' || section.cursorEffect === 'off' ? section.cursorEffect : undefined
-    const content = { title, backdrop, ...(cursorEffect && { cursorEffect }) }
+    const particles = section.particles === 'sparkle' ? 'sparkle' : undefined
+    const content = { title, backdrop, ...(cursorEffect && { cursorEffect }), ...(particles && { particles }) }
     sectionDocs[section.id] = {
       ...content,
       slideIds: cleanSlides.map((s) => s.id),

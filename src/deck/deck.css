@@ -303,6 +303,14 @@
   background: #b784ff;
 }
 
+.section-theme-dot[data-backdrop='pink'] {
+  background: #f7bfd2;
+}
+
+.section-theme-dot[data-backdrop='black'] {
+  background: #05060a;
+}
+
 .section-rename-input {
   width: 140px;
   height: 28px;
@@ -321,6 +329,14 @@
 
 .backdrop-swatch[data-backdrop='purple'] {
   --swatch: linear-gradient(135deg, #c197ff, #4c2a85);
+}
+
+.backdrop-swatch[data-backdrop='pink'] {
+  --swatch: linear-gradient(135deg, #fde4ec, #e7a3bb);
+}
+
+.backdrop-swatch[data-backdrop='black'] {
+  --swatch: radial-gradient(circle at 35% 35%, #1c2233, #000 75%);
 }
 
 .tool-group {
