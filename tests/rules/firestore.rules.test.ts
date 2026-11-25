@@ -278,6 +278,30 @@ describe('document shape', () => {
     await assertFails(setDoc(doc(editor(), `${DECK}/boxes/box-2`), boxDoc(1, { width: 500 })))
   })
 
+  it('accepts lists of mixed sizes and colours', async () => {
+    await assertSucceeds(
+      setDoc(doc(editor(), `${DECK}/boxes/box-1`), boxDoc(1, { sizes: 't0-5,h6-15,s4999-5000', colors: 'g0-4,k9-12,w13-14' })),
+    )
+  })
+
+  it('refuses size and colour lists the app would never make', async () => {
+    const bad = [
+      { sizes: '' },
+      { sizes: 5 },
+      { sizes: 'x0-1' },
+      { sizes: 'h0-1,' },
+      { sizes: 'h0-10000' },
+      { sizes: 'g0-1' },
+      { colors: 'h0-1' },
+      { colors: 'g0-1 k2-3' },
+      { sizes: Array(400).fill('h1000-1001').join(',') },
+      { colors: Array(400).fill('g1000-1001').join(',') },
+    ]
+    for (const [i, fields] of bad.entries()) {
+      await assertFails(setDoc(doc(editor(), `${DECK}/boxes/box-${i}`), boxDoc(1, fields)))
+    }
+  })
+
   it('refuses a document id the app would never make', async () => {
     await assertFails(setDoc(doc(editor(), `${DECK}/boxes/${'x'.repeat(65)}`), boxDoc(1)))
     await assertFails(setDoc(doc(editor(), `${DECK}/boxes/bad.id`), boxDoc(1)))

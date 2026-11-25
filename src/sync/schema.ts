@@ -27,6 +27,8 @@ export const SCHEMA_VERSION = 2
 
 export const LIMITS = {
   textLength: 5000,
+  /** Characters in each of a box's lists of text sizes and colours. */
+  formatListLength: 4000,
   titleLength: 200,
   slidesPerSection: 30,
   sections: 60,
@@ -181,6 +183,8 @@ export function boxToData(box: TextBox): BoxData {
     color: box.color,
     look: box.look,
   }
+  if (box.sizes) data.sizes = box.sizes
+  if (box.colors) data.colors = box.colors
   if (box.width !== undefined && box.width >= 1) data.width = Math.min(box.width, LIMITS.boxSize)
   if (box.height !== undefined && box.height >= 1) data.height = Math.min(box.height, LIMITS.boxSize)
   return data
@@ -222,6 +226,8 @@ export function boxFromDoc(raw: unknown): BoxData | null {
     color: raw.color as BoxData['color'],
     look: raw.look as BoxData['look'],
   }
+  if (typeof raw.sizes === 'string' && raw.sizes) box.sizes = raw.sizes
+  if (typeof raw.colors === 'string' && raw.colors) box.colors = raw.colors
   if (typeof raw.width === 'number') box.width = raw.width
   if (typeof raw.height === 'number') box.height = raw.height
   return box
@@ -266,6 +272,9 @@ export function partProblem(kind: PartKind, data: PartData | null): string | nul
   if (kind === 'box') {
     const box = data as BoxData
     if (box.text.length > LIMITS.textLength) return `A text box can hold up to ${LIMITS.textLength.toLocaleString()} characters.`
+    if (Math.max(box.sizes?.length ?? 0, box.colors?.length ?? 0) > LIMITS.formatListLength) {
+      return 'This text box changes size or colour too many times. Make more of it match.'
+    }
     if (!ID_PATTERN.test(box.slide)) return 'This text box is on a slide the deck does not know.'
     return null
   }

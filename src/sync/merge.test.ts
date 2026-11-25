@@ -21,6 +21,44 @@ const section = (slides: ReturnType<typeof slide>[], patch: Partial<SectionData>
   ...patch,
 })
 
+describe('boxes with mixed sizes and colours', () => {
+  const base = box({ text: 'Fear and worry', sizes: 'h0-4' })
+
+  it('combines sizes changed on one side with colours changed on the other', () => {
+    const result = threeWayMerge(base, { ...base, sizes: 'h0-4,s9-14' }, { ...base, colors: 'g0-4' })
+    expect(result).toEqual({ merged: { ...base, sizes: 'h0-4,s9-14', colors: 'g0-4' }, conflicts: [] })
+  })
+
+  it('still combines a move with a change of words', () => {
+    const result = threeWayMerge(base, { ...base, text: 'Fear or worry' }, { ...base, x: 0.5 })
+    expect(result).toEqual({ merged: { ...base, text: 'Fear or worry', x: 0.5 }, conflicts: [] })
+  })
+
+  it('asks when one side changed words and the other sizes, since sizes are positions in the words', () => {
+    const result = threeWayMerge(base, { ...base, text: 'Now: Fear and worry', sizes: 'h5-9' }, { ...base, sizes: 't0-4' })
+    expect(result.conflicts).toEqual(['text'])
+  })
+
+  it('"merge both" puts the new words in the new sizes', () => {
+    const merged = mergeKeepingBoth(base, { ...base, sizes: 't0-4' }, { ...base, text: 'Now: Fear and worry', sizes: 'h5-9' })
+    // Words added at the start match the word they were put in front of, as they would when typed.
+    expect(merged).toEqual({ ...base, text: 'Now: Fear and worry', sizes: 't0-9' })
+  })
+
+  it('"merge both" keeps each text looking as it did', () => {
+    const plain = box()
+    const merged = mergeKeepingBoth(plain, { ...plain, text: 'Mine', color: 'grey' }, { ...plain, text: 'Theirs', style: 'title' })
+    expect(merged).toEqual({ ...plain, text: 'Theirs\n\nMine', style: 'title', sizes: 'b8-12', color: 'white', colors: 'g8-12' })
+  })
+
+  it('drops a list that a whole-box change removed', () => {
+    const { sizes: _sizes, ...plain } = base
+    const result = threeWayMerge(base, { ...plain, style: 'small' }, { ...base, x: 0.5 })
+    expect(result.merged).not.toHaveProperty('sizes')
+    expect(result.merged).toMatchObject({ style: 'small', x: 0.5 })
+  })
+})
+
 describe('threeWayMerge', () => {
   it('takes whichever side changed when only one did', () => {
     expect(threeWayMerge(box(), box({ text: 'Mine' }), box())).toEqual({ merged: box({ text: 'Mine' }), conflicts: [] })

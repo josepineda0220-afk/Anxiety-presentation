@@ -2,7 +2,9 @@ import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type Poi
 import { flushSync } from 'react-dom'
 import { motion } from 'motion/react'
 import { createTapDetector } from '../stage/gestures'
-import { useDeck, type TextBox } from './deckStore'
+import { useDeck, type TextBox, type TextStyle } from './deckStore'
+import { drawBox, readSelection, readText, showsBox, writeSelection } from './editable'
+import { charFormats, formattedLines } from './format'
 import { dragSize, fitSize, type ResizeHandle } from './resize'
 
 /** Pixels in one stage unit: 1% of the width of a 16:9 frame fitted in the window. Matches --u. */
@@ -46,25 +48,40 @@ export function finishEditing() {
 
 type Live = Partial<Pick<TextBox, 'x' | 'y' | 'width' | 'height'>>
 
-const BULLET = /^•\s*/
+/** The widest each size lets a box grow, in stage units. Matches --tb-max in deck.css. */
+const MAX_WIDTH: Record<TextStyle, number> = { title: 48, heading: 40, body: 34, small: 34 }
 
 /** The text when it isn't being typed in. A wrapped bullet lines up under its words, not its dot. */
-function ShownText({ text }: { text: string }) {
+function ShownText({ box }: { box: TextBox }) {
+  const mixed = box.sizes !== undefined || box.colors !== undefined
   return (
     <div className="tb-text">
-      {text.split('\n').map((line, index) =>
-        BULLET.test(line) ? (
-          <div key={index} className="tb-bullet">
-            {line.replace(BULLET, '')}
-          </div>
-        ) : (
-          <div key={index} className="tb-line">
-            {line}
-          </div>
-        ),
-      )}
+      {formattedLines(box).map((line, index) => (
+        <div
+          key={index}
+          className={line.bullet ? 'tb-bullet' : 'tb-line'}
+          data-size={mixed ? line.style : undefined}
+          data-color={mixed ? line.color : undefined}
+        >
+          {mixed
+            ? line.segments.map((segment, at) => (
+                <span key={at} data-size={segment.style} data-color={segment.color}>
+                  {segment.text}
+                </span>
+              ))
+            : line.segments[0]?.text}
+        </div>
+      ))}
     </div>
   )
+}
+
+/** Redraws the editable text if it differs from the box, leaving the caret where it was. */
+function syncEditable(element: HTMLElement, box: TextBox) {
+  if (showsBox(element, box)) return
+  const held = document.activeElement === element ? readSelection(element) : null
+  drawBox(element, box)
+  if (held) writeSelection(element, held)
 }
 
 /** The caret position under a point, if it falls inside an element. */
@@ -84,6 +101,18 @@ function caretRangeAt(x: number, y: number, within: HTMLElement): Range | null {
   return range && within.contains(range.startContainer) ? range : null
 }
 
+let toolbarPressAt = -Infinity
+
+/**
+ * Called when a toolbar press starts. On a touch screen a tap can take focus out of the text before
+ * the button acts, which would end the edit and send a size or colour to the whole box.
+ */
+export function noteToolbarPress() {
+  toolbarPressAt = performance.now()
+}
+
+const pressingToolbar = () => performance.now() - toolbarPressAt < 1500
+
 function allTextOf(element: HTMLElement) {
   const range = document.createRange()
   range.selectNodeContents(element)
@@ -97,7 +126,8 @@ export function TextBoxView({ box }: { box: TextBox }) {
 
   const boxRef = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLDivElement>(null)
-  const filled = useRef(false)
+  /** True while an input method is assembling a character, when the text must not be redrawn. */
+  const composing = useRef(false)
   const gesture = useRef<Gesture | null>(null)
   const caretAt = useRef<{ x: number; y: number } | null>(null)
   const handleTaps = useRef(createTapDetector())
@@ -111,12 +141,11 @@ export function TextBoxView({ box }: { box: TextBox }) {
     setLiveState(next)
   }
 
-  // While editing, the browser owns the text and React keeps out of it, or the caret would jump.
+  // While editing, the browser owns the text. It is only redrawn when a size or colour changes, or
+  // when what was typed landed in a different one than it should have, and the caret is put back.
   useLayoutEffect(() => {
-    const element = textRef.current!
-    if ((!editing || !filled.current) && element.textContent !== box.text) element.textContent = box.text
-    filled.current = true
-  }, [box.text, editing])
+    if (!composing.current) syncEditable(textRef.current!, box)
+  }, [box, editing])
 
   // Starting an edit: caret where the double-click was, or the whole text selected to type over.
   useEffect(() => {
@@ -130,6 +159,20 @@ export function TextBoxView({ box }: { box: TextBox }) {
     selection?.addRange((point && caretRangeAt(point.x, point.y, element)) || allTextOf(element))
     return () => window.getSelection()?.removeAllRanges()
   }, [editing])
+
+  // The toolbar needs to know what is selected.
+  useEffect(() => {
+    if (!editing) return
+    const report = () => {
+      // Out of the text (a tap on the toolbar), the selection there is kept for the toolbar to use.
+      if (document.activeElement !== textRef.current) return
+      const at = readSelection(textRef.current!)
+      if (at) useDeck.getState().setTextCursor(box.id, Math.min(at.anchor, at.focus), Math.max(at.anchor, at.focus))
+    }
+    report()
+    document.addEventListener('selectionchange', report)
+    return () => document.removeEventListener('selectionchange', report)
+  }, [editing, box.id])
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     lastPointer.current = event.pointerType
@@ -203,13 +246,22 @@ export function TextBoxView({ box }: { box: TextBox }) {
   }
 
   const shown = { ...box, ...live }
+  const chars = box.sizes || box.colors ? charFormats(box) : null
+  const widest = chars ? Math.max(...chars.map(({ style }) => MAX_WIDTH[style])) : undefined
+  // Frosted glass is pale for black text and dark otherwise, so it follows most of the text.
+  const tone = chars
+    ? chars.filter(({ color }) => color === 'black').length * 2 > chars.length
+      ? 'black'
+      : (chars.find(({ color }) => color !== 'black')?.color ?? 'white')
+    : box.color
   return (
     <motion.div
       ref={boxRef}
       className="tb"
       data-box-id={box.id}
       data-style={box.style}
-      data-color={box.color}
+      data-mixed={chars ? true : undefined}
+      data-color={tone}
       data-look={box.look}
       data-selected={selected || undefined}
       data-editing={editing || undefined}
@@ -218,6 +270,7 @@ export function TextBoxView({ box }: { box: TextBox }) {
       style={{
         left: `${shown.x * 100}%`,
         top: `${shown.y * 100}%`,
+        ...(widest !== undefined && { ['--tb-max' as string]: widest }),
         ...(shown.width !== undefined && { width: `calc(var(--u) * ${shown.width.toFixed(2)})`, maxWidth: 'none' }),
         // A minimum, so a box always grows to hold its text and nothing is ever cut off.
         ...(shown.height !== undefined && { minHeight: `calc(var(--u) * ${shown.height.toFixed(2)})` }),
@@ -238,14 +291,40 @@ export function TextBoxView({ box }: { box: TextBox }) {
         hidden={!editing}
         contentEditable={editing ? 'plaintext-only' : false}
         spellCheck={editing}
-        onInput={(event) => useDeck.getState().updateBox(box.id, { text: event.currentTarget.innerText })}
-        onBlur={() => {
-          // Switching to another window is not the end of an edit.
+        onInput={(event) => {
+          const element = event.currentTarget
+          useDeck.getState().typeText(box.id, readText(element), readSelection(element)?.focus)
+        }}
+        onCompositionStart={() => (composing.current = true)}
+        onCompositionEnd={(event) => {
+          composing.current = false
+          const latest = useDeck.getState().boxes.find((b) => b.id === box.id)
+          if (latest) syncEditable(event.currentTarget, latest)
+        }}
+        onBlur={(event) => {
+          const element = event.currentTarget
           const deck = useDeck.getState()
-          if (document.hasFocus() && deck.editingId === box.id) deck.stopEditing()
+          if (deck.editingId !== box.id) return
+          const toToolbar = event.relatedTarget instanceof Element && event.relatedTarget.closest('[data-keeps-typing]')
+          if (toToolbar || pressingToolbar()) {
+            // Still typing: once the button has acted, focus and the selection come back to the text.
+            const restore = () => {
+              window.removeEventListener('click', restore)
+              const s = useDeck.getState()
+              if (s.editingId !== box.id || document.activeElement === element) return
+              element.focus({ preventScroll: true })
+              const at = s.textCursor
+              if (at?.boxId === box.id) writeSelection(element, { anchor: at.start, focus: at.end })
+            }
+            window.addEventListener('click', restore)
+            window.setTimeout(restore, 700)
+            return
+          }
+          // Switching to another window is not the end of an edit.
+          if (document.hasFocus()) deck.stopEditing()
         }}
       />
-      {!editing && <ShownText text={box.text} />}
+      {!editing && <ShownText box={box} />}
       {inputMode && selected && (
         <>
           <div className="tb-handle" data-handle="width" title="Drag to set the width. Double-click or double-tap to fit the text." />
