@@ -17,6 +17,9 @@ password can edit it, from any device, at the same time as everyone else.
   - Choose each section's **Cursor** effect: **Move away** (the dots step aside around the cursor), **Ripple** (rings spread through the background colour and carry the dots with them), or **Off**.
   - Add or remove slides within a section using **+** / **−** next to the slide numbers.
   - Click **Text box** to add text, drag to position, drag handles to resize, and double-click to edit.
+  - **Size** (Title, Heading, Body, Small) and **colour** work like a word processor. With words selected,
+    they change those words. With nothing selected, they apply to what you type next. With a box
+    selected but not being typed in, they change all its text. **Clear** / **Frosted** is for the whole box.
   - The clock icon opens the **version history**; the lock icon signs out; **Done** (`Esc`) returns to presenting.
 
 Signing in lasts until the browser tab closes. Reloading the tab keeps you signed in; a new tab

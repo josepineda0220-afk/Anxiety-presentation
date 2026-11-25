@@ -18,6 +18,7 @@ import { isEditingConfigured } from '../sync/config'
 import type { SignInResult } from '../sync/firebase'
 import { isSyncReady } from '../sync/syncStatus'
 import { sameData, type PartData, type PartKind } from '../sync/schema'
+import { charFormats, editFormats, pickFormat, shownFormat, withFormats, type CharFormat, type TextCursor } from './format'
 
 export type TextStyle = 'title' | 'heading' | 'body' | 'small'
 export type TextColor = 'white' | 'grey' | 'black'
@@ -34,6 +35,10 @@ export interface TextBox extends TextFormat {
   /** The slide this box belongs to. */
   slide: string
   text: string
+  /** Stretches of the text in a size other than `style`; see format.ts. */
+  sizes?: string
+  /** Stretches of the text in a colour other than `color`. */
+  colors?: string
   /** Left edge, as a fraction of the screen width. */
   x: number
   /** Top edge, as a fraction of the screen height. */
@@ -61,6 +66,8 @@ interface DeckState {
   promptingPassword: boolean
   selectedId: string | null
   editingId: string | null
+  /** The caret or selection in the box being typed in. */
+  textCursor: (TextCursor & { boxId: string }) | null
   boxes: TextBox[]
   /** Format for the next new box: the last one picked. */
   format: TextFormat
@@ -86,7 +93,14 @@ interface DeckState {
   select: (id: string | null) => void
   startEditing: (id: string) => void
   stopEditing: () => void
-  /** Restyles the selected box, if any, and makes this the format for new boxes. */
+  /** What was typed into a box, and where the caret ended up. The formats follow the text. */
+  typeText: (id: string, text: string, caret?: number) => void
+  /** Follows the caret or selection in the box being typed in. */
+  setTextCursor: (boxId: string, start: number, end: number) => void
+  /**
+   * Restyles the selected box, if any, and makes this the format for new boxes. While typing, a size
+   * or colour goes to the selected text, or with nothing selected to what is typed next.
+   */
   applyFormat: (patch: Partial<TextFormat>) => void
   /** Sets the background color theme for a section and updates the stage if active. */
   setSectionBackdrop: (sectionId: string, backdrop: BackdropTheme) => void
@@ -117,6 +131,20 @@ export function placeNewBox(boxesOnSlide: number): { x: number; y: number } {
   return { x: 0.07 + step * 0.012, y: 0.14 + step * 0.11 }
 }
 
+/** The cursor in the selected box, while it is being typed in. */
+function typingCursor(s: DeckState): TextCursor | null {
+  return s.textCursor && s.editingId === s.selectedId && s.textCursor.boxId === s.selectedId ? s.textCursor : null
+}
+
+/**
+ * The size or colour the toolbar shows as on: that of the selected text or of what is typed next,
+ * and none when the selected text mixes them. With no box selected, the next box's.
+ */
+export function shownTextFormat<K extends keyof CharFormat>(s: DeckState, key: K): CharFormat[K] | undefined {
+  const box = s.boxes.find((b) => b.id === s.selectedId)
+  return box ? shownFormat(box, typingCursor(s))[key] : s.format[key]
+}
+
 /** When editing ends, trailing blank lines go, and a box left with no text is removed. */
 function finishEditing(state: DeckState): Partial<DeckState> {
   const id = state.editingId
@@ -130,9 +158,10 @@ function finishEditing(state: DeckState): Partial<DeckState> {
       boxes: state.boxes.filter((b) => b.id !== id),
     }
   }
+  const trim = (b: TextBox): TextBox => ({ ...b, text, ...withFormats(text, b, charFormats(b)) })
   return {
     editingId: null,
-    boxes: text === box?.text ? state.boxes : state.boxes.map((b) => (b.id === id ? { ...b, text } : b)),
+    boxes: text === box?.text ? state.boxes : state.boxes.map((b) => (b.id === id ? trim(b) : b)),
   }
 }
 
@@ -193,6 +222,7 @@ export const useDeck = create<DeckState>()(
       promptingPassword: false,
       selectedId: null,
       editingId: null,
+      textCursor: null,
       boxes: ALL_SEED_BOXES,
       format: { style: 'body', color: 'white', look: 'clear' },
 
@@ -282,7 +312,7 @@ export const useDeck = create<DeckState>()(
             ...placeNewBox(onSlide),
             ...s.format,
           }
-          return { boxes: [...boxes, box], selectedId: box.id, editingId: box.id }
+          return { boxes: [...boxes, box], selectedId: box.id, editingId: box.id, textCursor: null }
         }),
 
       updateBox: (id, patch) =>
@@ -299,18 +329,47 @@ export const useDeck = create<DeckState>()(
         set((s) => ({ ...(s.editingId && s.editingId !== id ? finishEditing(s) : {}), selectedId: id })),
 
       startEditing: (id) =>
-        set((s) => (s.editingId === id ? {} : { ...finishEditing(s), selectedId: id, editingId: id })),
+        set((s) => (s.editingId === id ? {} : { ...finishEditing(s), selectedId: id, editingId: id, textCursor: null })),
 
       stopEditing: () => set((s) => finishEditing(s)),
+
+      typeText: (id, text, caret) =>
+        set((s) => {
+          const cursor = s.textCursor?.boxId === id ? s.textCursor : undefined
+          return {
+            boxes: s.boxes.map((b) => (b.id === id ? { ...b, text, ...editFormats(b, text, { caret, cursor }) } : b)),
+            textCursor: caret === undefined ? null : { boxId: id, start: caret, end: caret },
+          }
+        }),
+
+      setTextCursor: (boxId, start, end) =>
+        set((s) => {
+          const at = s.textCursor
+          // Staying put keeps a pick that is waiting for the next characters.
+          if (at && at.boxId === boxId && at.start === start && at.end === end) return {}
+          return { textCursor: { boxId, start, end } }
+        }),
 
       applyFormat: (patch) =>
         set((s) => {
           const selected = s.boxes.find((b) => b.id === s.selectedId)
           if (!selected) return { format: { ...s.format, ...patch } }
-          const { style, color, look } = { ...selected, ...patch }
+          // The look belongs to the whole box; the size and colour to its text.
+          const { look, ...pick } = patch
+          let box: TextBox = look ? { ...selected, look } : selected
+          const cursor = typingCursor(s)
+          let textCursor = s.textCursor
+          const picking = Object.keys(pick).length > 0
+          if (picking) {
+            const picked = pickFormat(box, cursor, pick)
+            box = { ...box, ...picked.formats }
+            textCursor = picked.cursor && { boxId: box.id, ...picked.cursor }
+          }
           return {
-            format: { style, color, look },
-            boxes: s.boxes.map((b) => (b === selected ? { ...b, style, color, look } : b)),
+            // While typing, remember just what was picked. Otherwise the next box copies this one.
+            format: cursor ? { ...s.format, ...patch } : { style: box.style, color: box.color, look: box.look },
+            boxes: s.boxes.map((b) => (b === selected ? box : b)),
+            textCursor,
           }
         }),
 

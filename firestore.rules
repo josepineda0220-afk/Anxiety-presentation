@@ -125,10 +125,16 @@ service cloud.firestore {
 
     // ---- Text boxes ----------------------------------------------------------------------------
 
+    // Stretches of text in another size or colour: "h0-8,s20-31" is a letter for the size or
+    // colour, then start and end offsets.
+    function isRunList(value, pattern) {
+      return value is string && value.size() <= 4000 && value.matches(pattern);
+    }
+
     function isValidBox(data) {
       return hasExactly(data,
           ['schemaVersion', 'revision', 'updatedAt', 'updatedBy', 'slide', 'text', 'x', 'y', 'style', 'color', 'look', 'deleted'],
-          ['width', 'height'])
+          ['width', 'height', 'sizes', 'colors'])
         && isStamped(data)
         && isId(data.slide)
         && data.text is string
@@ -136,6 +142,8 @@ service cloud.firestore {
         && isNumberIn(data.x, 0, 1)
         && isNumberIn(data.y, 0, 1)
         && data.style in ['title', 'heading', 'body', 'small']
+        && (!('sizes' in data) || isRunList(data.sizes, '[thbs][0-9]{1,4}-[0-9]{1,4}(,[thbs][0-9]{1,4}-[0-9]{1,4})*'))
+        && (!('colors' in data) || isRunList(data.colors, '[wgk][0-9]{1,4}-[0-9]{1,4}(,[wgk][0-9]{1,4}-[0-9]{1,4})*'))
         && data.color in ['white', 'grey', 'black']
         && data.look in ['clear', 'frosted']
         && (!('width' in data) || isNumberIn(data.width, 1, 200))

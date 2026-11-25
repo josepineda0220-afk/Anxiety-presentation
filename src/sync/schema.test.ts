@@ -30,6 +30,12 @@ describe('stored documents', () => {
     }
   })
 
+  it('round-trips a box with mixed sizes and colours', () => {
+    const box = boxToData({ ...ALL_SEED_BOXES[0], sizes: 'h0-3', colors: 'g1-2,k3-4' })
+    expect(boxFromDoc(partDocument('box', box, null, 1, 'uid'))).toEqual(box)
+    expect(box).toMatchObject({ sizes: 'h0-3', colors: 'g1-2,k3-4' })
+  })
+
   it('stamps every document with the schema version, revision and editor', () => {
     expect(partDocument('box', boxToData(ALL_SEED_BOXES[0]), null, 7, 'uid')).toMatchObject({
       schemaVersion: 2,
@@ -73,6 +79,13 @@ describe('partProblem', () => {
     const box = boxToData(ALL_SEED_BOXES[0])
     expect(partProblem('box', { ...box, text: 'x'.repeat(LIMITS.textLength) })).toBeNull()
     expect(partProblem('box', { ...box, text: 'x'.repeat(LIMITS.textLength + 1) })).toMatch(/5,000/)
+  })
+
+  it('explains text that changes size or colour too many times', () => {
+    const box = boxToData(ALL_SEED_BOXES[0])
+    const long = 'h0-1,'.repeat(LIMITS.formatListLength / 5) + 'h0-1'
+    expect(partProblem('box', { ...box, sizes: long })).toMatch(/too many times/)
+    expect(partProblem('box', { ...box, colors: long })).toMatch(/too many times/)
   })
 
   it('explains a section with no title or too many slides', () => {

@@ -17,7 +17,7 @@ globalThis.localStorage = {
   },
 }
 
-const { STARTER_TEXT, placeNewBox, useDeck } = await import('./deckStore')
+const { STARTER_TEXT, placeNewBox, shownTextFormat, useDeck } = await import('./deckStore')
 const { MEDICATION_SLIDES } = await import('../data/medications')
 const { ALL_SEED_BOXES, SEED_SECTIONS } = await import('../data/sections')
 const { getAllSlides, goToSection, goToSlide, stepSlide } = await import('./slides')
@@ -134,6 +134,69 @@ describe('formatting', () => {
     deck().applyFormat({ style: 'heading', color: 'grey' })
     expect(only()).toMatchObject({ style: 'body', color: 'white' })
     expect(deck().format).toEqual({ style: 'heading', color: 'grey', look: 'clear' })
+  })
+})
+
+describe('formatting part of a box', () => {
+  /** A box being typed in, with this text and the cursor here. */
+  const typing = (text: string, start: number, end = start) => {
+    deck().addBox()
+    const { id } = only()
+    deck().typeText(id, text, text.length)
+    deck().setTextCursor(id, start, end)
+    return id
+  }
+
+  it('changes only the selected text', () => {
+    typing('Fear and worry', 0, 4)
+    deck().applyFormat({ style: 'heading', color: 'grey' })
+    expect(only()).toMatchObject({ style: 'body', sizes: 'h0-4', color: 'white', colors: 'g0-4' })
+  })
+
+  it('with nothing selected, applies the pick to what is typed next', () => {
+    const id = typing('Fear ', 5)
+    deck().applyFormat({ style: 'title' })
+    deck().applyFormat({ color: 'black' })
+    expect(only()).toMatchObject({ style: 'body', color: 'white' })
+    expect(shownTextFormat(deck(), 'style')).toBe('title')
+    expect(shownTextFormat(deck(), 'color')).toBe('black')
+    // The browser reports the unmoved caret again, which must not drop the pick.
+    deck().setTextCursor(id, 5, 5)
+    deck().typeText(id, 'Fear now', 8)
+    expect(only()).toMatchObject({ sizes: 't5-8', colors: 'k5-8' })
+  })
+
+  it('forgets the pick when the caret moves', () => {
+    const id = typing('Fear', 4)
+    deck().applyFormat({ style: 'title' })
+    deck().setTextCursor(id, 1, 1)
+    deck().typeText(id, 'F!ear', 2)
+    expect(only().sizes).toBeUndefined()
+  })
+
+  it('keeps a waiting pick when the box look changes', () => {
+    typing('Fear', 4)
+    deck().applyFormat({ style: 'title' })
+    deck().applyFormat({ look: 'frosted' })
+    expect(shownTextFormat(deck(), 'style')).toBe('title')
+    expect(deck().format).toEqual({ style: 'title', color: 'white', look: 'frosted' })
+  })
+
+  it('restyles the whole box once typing has stopped', () => {
+    typing('Fear and worry', 0, 4)
+    deck().applyFormat({ style: 'heading' })
+    deck().stopEditing()
+    expect(shownTextFormat(deck(), 'style')).toBeUndefined()
+    deck().applyFormat({ style: 'small' })
+    expect(only()).toMatchObject({ style: 'small', sizes: undefined })
+  })
+
+  it('trims the formats along with trailing blank lines', () => {
+    const id = typing('ab', 0, 1)
+    deck().applyFormat({ color: 'grey' })
+    deck().typeText(id, 'ab\n\n', 4)
+    deck().stopEditing()
+    expect(only()).toMatchObject({ text: 'ab', colors: 'g0-1' })
   })
 })
 

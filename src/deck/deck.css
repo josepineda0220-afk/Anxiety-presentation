@@ -64,8 +64,23 @@
   left: 0.15em;
 }
 
+/* The widest a box grows on its own. A box with mixed text takes the widest of the sizes it uses. */
 .tb[data-style='title'] {
   --tb-max: 48;
+}
+
+.tb[data-style='heading'] {
+  --tb-max: 40;
+}
+
+.tb[data-style='body'],
+.tb[data-style='small'] {
+  --tb-max: 34;
+}
+
+/* Each size, for a whole box and for a stretch of text within one. */
+.tb[data-style='title'],
+.tb [data-size='title'] {
   font-family: 'Instrument Serif', Georgia, serif;
   font-size: calc(var(--u) * 4.8);
   font-weight: 400;
@@ -73,26 +88,33 @@
   letter-spacing: -0.01em;
 }
 
-.tb[data-style='heading'] {
-  --tb-max: 40;
+.tb[data-style='heading'],
+.tb [data-size='heading'] {
+  font-family: 'Inter Variable', system-ui, sans-serif;
   font-size: calc(var(--u) * 2.3);
   font-weight: 600;
   line-height: 1.15;
   letter-spacing: -0.02em;
 }
 
-.tb[data-style='body'] {
-  --tb-max: 34;
+.tb[data-style='body'],
+.tb [data-size='body'] {
+  font-family: 'Inter Variable', system-ui, sans-serif;
   font-size: calc(var(--u) * 1.35);
   font-weight: 400;
   line-height: 1.5;
+  letter-spacing: normal;
 }
 
-.tb[data-style='small'] {
-  --tb-max: 34;
+.tb[data-style='small'],
+.tb [data-size='small'],
+/* In mixed text the surroundings are set small, so they never make a line taller. */
+.tb[data-mixed] > .tb-text {
+  font-family: 'Inter Variable', system-ui, sans-serif;
   font-size: calc(var(--u) * 0.95);
   font-weight: 400;
   line-height: 1.4;
+  letter-spacing: normal;
 }
 
 .tb[data-color='white'] {
@@ -107,9 +129,27 @@
   --tb-ink: var(--ink-black);
 }
 
+/* A stretch of text in its own colour. */
+.tb [data-color='white'] {
+  color: var(--ink-white);
+}
+
+.tb [data-color='grey'] {
+  color: var(--ink-grey);
+}
+
+.tb [data-color='black'] {
+  color: var(--ink-black);
+}
+
 /* Floating light text gets a soft shadow so it holds up over the brain and the dots. */
-.tb[data-look='clear']:not([data-color='black']) {
+.tb[data-look='clear']:not([data-color='black']),
+.tb[data-look='clear'] [data-color]:not([data-color='black']) {
   text-shadow: 0 1px 16px rgb(2 8 28 / 60%);
+}
+
+.tb[data-look='clear'] [data-color='black'] {
+  text-shadow: none;
 }
 
 .tb[data-look='frosted'] {
@@ -126,6 +166,11 @@
 .tb[data-look='frosted'][data-color='black'] {
   background: linear-gradient(150deg, rgb(255 255 255 / 78%), rgb(232 238 255 / 62%));
   border-color: rgb(255 255 255 / 60%);
+}
+
+/* Grey words among black ones go darker, to stay readable on the pale glass. */
+.tb[data-look='frosted'][data-color='black'] [data-color='grey'] {
+  color: #4d576b;
 }
 
 /* Input mode */

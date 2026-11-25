@@ -8,7 +8,7 @@ import {
   type ParticleStyle,
 } from '../data/sections'
 import { useSyncLabel, useSyncStatus, type SyncStatus } from '../sync/syncStatus'
-import { useDeck, type BoxLook, type TextColor, type TextStyle } from './deckStore'
+import { shownTextFormat, useDeck, type BoxLook, type TextColor, type TextStyle } from './deckStore'
 import { useDeckKeys } from './keys'
 import { PasswordGate } from './PasswordGate'
 import { goToSection, goToSlide } from './slides'
@@ -157,13 +157,15 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
   const sections = useDeck((s) => s.sections)
   const selected = useDeck((s) => s.boxes.find((box) => box.id === s.selectedId))
   const format = useDeck((s) => s.format)
+  const textStyle = useDeck((s) => shownTextFormat(s, 'style'))
+  const textColor = useDeck((s) => shownTextFormat(s, 'color'))
   const deck = useDeck.getState()
 
   const activeSection = sections.find((sec) => sec.slides.some((sl) => sl.id === slide)) ?? sections[0]
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [draftTitle, setDraftTitle] = useState('')
 
-  // With a box selected the controls show and change that box. Otherwise they set up the next one.
+  // With a box selected the box controls show and change that box. Otherwise they set up the next one.
   const shown = selected ?? format
 
   const commitRename = () => {
@@ -182,7 +184,8 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
         exit={{ opacity: 0 }}
         transition={{ duration: 0.2 }}
       >
-        Drag a box to move it · Drag its handles to resize · Double-click a box or section tab to edit text · Esc when done
+        Drag a box to move it · Drag its handles to resize · Double-click a box or section tab to edit text · Size and colour
+        apply to selected words, or to what you type next · Esc when done
       </motion.p>
 
       <motion.div
@@ -382,7 +385,13 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
 
         <span className="tool-sep" />
 
-        <Choice label="Text style" value={shown.style} options={STYLES} onChange={(style) => deck.applyFormat({ style })}>
+        <Choice
+          label="Text size"
+          value={textStyle}
+          options={STYLES}
+          onChange={(style) => deck.applyFormat({ style })}
+          hint={(option) => `${option.label} size`}
+        >
           {(option) => (
             <span className="tool-style" data-style={option.value}>
               {option.label}
@@ -392,7 +401,7 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
 
         <span className="tool-sep" />
 
-        <Choice label="Text colour" value={shown.color} options={COLORS} onChange={(color) => deck.applyFormat({ color })} swatches>
+        <Choice label="Text colour" value={textColor} options={COLORS} onChange={(color) => deck.applyFormat({ color })} swatches>
           {(option) => <span className="swatch" data-color={option.value} />}
         </Choice>
 
@@ -449,15 +458,17 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
 
 interface ChoiceProps<T extends string> {
   label: string
-  value: T
+  /** Undefined when none of the options is on. */
+  value: T | undefined
   options: { value: T; label: string }[]
   onChange: (value: T) => void
   children: (option: { value: T; label: string }) => ReactNode
   swatches?: boolean
+  hint?: (option: { value: T; label: string }) => string
 }
 
 /** A row of buttons where exactly one is on. */
-function Choice<T extends string>({ label, value, options, onChange, children, swatches }: ChoiceProps<T>) {
+function Choice<T extends string>({ label, value, options, onChange, children, swatches, hint }: ChoiceProps<T>) {
   return (
     <div className="tool-group" role="radiogroup" aria-label={label}>
       {options.map((option) => (
@@ -467,7 +478,7 @@ function Choice<T extends string>({ label, value, options, onChange, children, s
           role="radio"
           aria-checked={option.value === value}
           aria-label={swatches ? option.label : undefined}
-          title={swatches ? `${option.label} text` : undefined}
+          title={swatches ? `${option.label} text` : hint?.(option)}
           className={swatches ? 'tool-swatch' : undefined}
           onClick={() => onChange(option.value)}
         >

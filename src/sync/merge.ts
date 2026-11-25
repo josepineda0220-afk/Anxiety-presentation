@@ -7,6 +7,7 @@
  * editing settles (see ConflictPrompt).
  */
 import type { SlideSpec } from '../data/sections'
+import { charFormats, editFormats, withFormats, type FormattedText } from '../deck/format'
 import { sameData, type PartData } from './schema'
 
 export interface MergeResult {
@@ -17,6 +18,23 @@ export interface MergeResult {
 }
 
 type Fields = Record<string, unknown>
+
+/** A box's base size and colour, each with the list of text that differs from it. */
+const SIZE_FIELDS = ['style', 'sizes']
+const COLOR_FIELDS = ['color', 'colors']
+
+const isMixed = (...versions: Fields[]) => versions.some((version) => version.sizes !== undefined || version.colors !== undefined)
+const same = (keys: string[], a: Fields, b: Fields) => keys.every((key) => sameData(a[key], b[key]))
+
+/**
+ * Fields of a box that can only be taken from one side together. Mixed sizes and colours are stored
+ * as positions in the text, so once the words change, they go with the words.
+ */
+function tiedFields(b: Fields, m: Fields, t: Fields): string[][] {
+  if (!isMixed(b, m, t)) return []
+  const retyped = !sameData(m.text, b.text) || !sameData(t.text, b.text)
+  return retyped ? [['text', ...SIZE_FIELDS, ...COLOR_FIELDS]] : [SIZE_FIELDS, COLOR_FIELDS]
+}
 
 /** Merges slide lists by slide id: additions from both sides are kept, and a removal wins over no change. */
 function mergeSlides(base: SlideSpec[], mine: SlideSpec[], theirs: SlideSpec[]): { slides: SlideSpec[]; conflict: boolean } {
@@ -57,7 +75,20 @@ export function threeWayMerge(base: PartData | null, mine: PartData | null, thei
   const merged: Fields = {}
   const conflicts: string[] = []
 
-  for (const key of new Set([...Object.keys(m), ...Object.keys(t)])) {
+  const keys = new Set([...Object.keys(m), ...Object.keys(t)])
+  for (const tied of tiedFields(b, m, t)) {
+    let from = m
+    if (!same(tied, m, t)) {
+      if (same(tied, m, b)) from = t
+      else if (!same(tied, t, b)) conflicts.push(tied[0])
+    }
+    for (const key of tied) {
+      merged[key] = from[key]
+      keys.delete(key)
+    }
+  }
+
+  for (const key of keys) {
     if (key === 'slides' && Array.isArray(m.slides) && Array.isArray(t.slides)) {
       const result = mergeSlides((b.slides as SlideSpec[] | undefined) ?? [], m.slides as SlideSpec[], t.slides as SlideSpec[])
       merged.slides = result.slides
@@ -72,8 +103,7 @@ export function threeWayMerge(base: PartData | null, mine: PartData | null, thei
       conflicts.push(key)
     }
   }
-  for (const key of Object.keys(merged)) if (merged[key] === undefined) delete merged[key]
-  return { merged: merged as unknown as PartData, conflicts }
+  return { merged: tidy(merged), conflicts }
 }
 
 /**
@@ -84,6 +114,24 @@ export function combineText(theirs: string, mine: string): string {
   if (theirs.includes(mine)) return theirs
   if (mine.includes(theirs)) return mine
   return `${theirs.replace(/\s+$/, '')}\n\n${mine.replace(/^\s+/, '')}`
+}
+
+/** Two versions of a box's words, both kept, each looking as it did. */
+function combineFormatted(theirs: FormattedText, mine: FormattedText) {
+  const text = combineText(theirs.text, mine.text)
+  const whole = [mine, theirs].find((version) => version.text === text)
+  if (whole) return { text, ...withFormats(text, whole, charFormats(whole)) }
+  const first = theirs.text.replace(/\s+$/, '')
+  const second = mine.text.replace(/^\s+/, '')
+  const firstChars = charFormats(theirs).slice(0, first.length)
+  const between = firstChars[firstChars.length - 1] ?? theirs
+  const chars = [...firstChars, between, between, ...charFormats(mine).slice(mine.text.length - second.length)]
+  return { text, ...withFormats(text, theirs, chars) }
+}
+
+/** Drops fields that ended up empty, since they cannot be saved. */
+function tidy(part: object): PartData {
+  return Object.fromEntries(Object.entries(part).filter(([, value]) => value !== undefined)) as unknown as PartData
 }
 
 /**
@@ -98,8 +146,21 @@ export function mergeKeepingBoth(base: PartData | null, mine: PartData | null, t
   const m = mine as unknown as Fields
   const t = theirs as unknown as Fields
   const b = (base ?? {}) as Fields
-  if (typeof m.text === 'string' && typeof t.text === 'string' && !sameData(m.text, b.text) && !sameData(t.text, b.text)) {
-    return { ...merged, text: combineText(t.text, m.text) } as PartData
+  if (typeof m.text !== 'string' || typeof t.text !== 'string') return merged
+  const mineTyped = m.text !== b.text
+  const theirsTyped = t.text !== b.text
+  const formattedMine = mine as unknown as FormattedText
+  const formattedTheirs = theirs as unknown as FormattedText
+  if (mineTyped && theirsTyped) return tidy({ ...merged, ...combineFormatted(formattedTheirs, formattedMine) })
+  // One side typed and the other restyled: the new words, in the sizes or colours picked for the old.
+  if (isMixed(b, m, t) && mineTyped !== theirsTyped) {
+    const [typed, restyled] = mineTyped ? [formattedMine, formattedTheirs] : [formattedTheirs, formattedMine]
+    const carried = editFormats(restyled, typed.text) as unknown as Fields
+    const result: Fields = { ...merged, ...(typed as unknown as Fields) }
+    for (const tied of [SIZE_FIELDS, COLOR_FIELDS]) {
+      if (!same(tied, restyled as unknown as Fields, b)) for (const key of tied) result[key] = carried[key]
+    }
+    return tidy(result)
   }
   return merged
 }

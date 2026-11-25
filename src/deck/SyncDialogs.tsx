@@ -3,14 +3,27 @@ import type { Conflict, ConflictChoice } from '../sync/engine'
 import type { SavedVersion } from '../sync/firestoreTransport'
 import type { BoxData, SectionData } from '../sync/schema'
 import { useConflicts } from '../sync/syncStatus'
+import { charFormats, segmentsOf } from './format'
 import { Dialog } from './PasswordGate'
 
 const cloud = () => import('../sync/cloudSync')
 
+/** A box's sizes and colours in words, to tell apart two versions that say the same thing. */
+function formatsOf(box: BoxData) {
+  return segmentsOf(box.text, charFormats(box))
+    .filter((segment) => segment.text.trim())
+    .map((segment) => `${segment.style}, ${segment.color}: “${segment.text.trim().slice(0, 40)}”`)
+    .join('\n')
+}
+
 function describe(conflict: Conflict): { what: string; mine: string; theirs: string } {
   const show = (data: Conflict['mine']) => {
     if (data === null) return '(removed)'
-    if (conflict.kind === 'box') return (data as BoxData).text || '(empty)'
+    if (conflict.kind === 'box') {
+      const box = data as BoxData
+      const sameWords = (conflict.mine as BoxData | null)?.text === (conflict.theirs as BoxData | null)?.text
+      return sameWords && box.text ? formatsOf(box) : box.text || '(empty)'
+    }
     const section = data as SectionData
     return `${section.title}\n${section.slides.length} slide${section.slides.length === 1 ? '' : 's'}: ${section.slides.map((s) => s.title).join(', ')}`
   }
