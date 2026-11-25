@@ -76,6 +76,18 @@ function caretRangeAt(x: number, y: number, within: HTMLElement): Range | null {
   return range && within.contains(range.startContainer) ? range : null
 }
 
+let toolbarPressAt = -Infinity
+
+/**
+ * Called when a toolbar press starts. On a touch screen a tap can take focus out of the text before
+ * the button acts, which would end the edit and send a size or colour to the whole box.
+ */
+export function noteToolbarPress() {
+  toolbarPressAt = performance.now()
+}
+
+const pressingToolbar = () => performance.now() - toolbarPressAt < 1500
+
 function allTextOf(element: HTMLElement) {
   const range = document.createRange()
   range.selectNodeContents(element)
@@ -124,6 +136,8 @@ export function TextBoxView({ box }: { box: TextBox }) {
   useEffect(() => {
     if (!editing) return
     const report = () => {
+      // Out of the text (a tap on the toolbar), the selection there is kept for the toolbar to use.
+      if (document.activeElement !== textRef.current) return
       const at = readSelection(textRef.current!)
       if (at) useDeck.getState().setTextCursor(box.id, Math.min(at.anchor, at.focus), Math.max(at.anchor, at.focus))
     }
@@ -243,10 +257,27 @@ export function TextBoxView({ box }: { box: TextBox }) {
           const latest = useDeck.getState().boxes.find((b) => b.id === box.id)
           if (latest) syncEditable(event.currentTarget, latest)
         }}
-        onBlur={() => {
-          // Switching to another window is not the end of an edit.
+        onBlur={(event) => {
+          const element = event.currentTarget
           const deck = useDeck.getState()
-          if (document.hasFocus() && deck.editingId === box.id) deck.stopEditing()
+          if (deck.editingId !== box.id) return
+          const toToolbar = event.relatedTarget instanceof Element && event.relatedTarget.closest('[data-keeps-typing]')
+          if (toToolbar || pressingToolbar()) {
+            // Still typing: once the button has acted, focus and the selection come back to the text.
+            const restore = () => {
+              window.removeEventListener('click', restore)
+              const s = useDeck.getState()
+              if (s.editingId !== box.id || document.activeElement === element) return
+              element.focus({ preventScroll: true })
+              const at = s.textCursor
+              if (at?.boxId === box.id) writeSelection(element, { anchor: at.start, focus: at.end })
+            }
+            window.addEventListener('click', restore)
+            window.setTimeout(restore, 700)
+            return
+          }
+          // Switching to another window is not the end of an edit.
+          if (document.hasFocus()) deck.stopEditing()
         }}
       />
       {!editing && <ShownText box={box} />}

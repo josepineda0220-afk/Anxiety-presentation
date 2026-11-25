@@ -13,6 +13,7 @@ import { useDeckKeys } from './keys'
 import { PasswordGate } from './PasswordGate'
 import { goToSection, goToSlide } from './slides'
 import { ConflictPrompt, HistoryPanel } from './SyncDialogs'
+import { noteToolbarPress } from './TextBox'
 
 const STYLES: { value: TextStyle; label: string }[] = [
   { value: 'title', label: 'Title' },
@@ -332,11 +333,14 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
         className="toolbar"
         role="toolbar"
         aria-label="Input mode"
+        data-keeps-typing
         initial={{ opacity: 0, y: 14 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 14 }}
         transition={{ duration: 0.22, ease: 'easeOut' }}
-        // A click here must not pull focus out of a box that is being typed in.
+        // A click here must not pull focus out of a box that is being typed in. A tap can, so the box
+        // is told to keep typing and take focus back.
+        onPointerDownCapture={noteToolbarPress}
         onMouseDown={(event) => event.preventDefault()}
       >
         {activeSection && (
