@@ -1,7 +1,7 @@
 import { AnimatePresence, useIsPresent } from 'motion/react'
 import { useShallow } from 'zustand/react/shallow'
 import { useDeck } from './deckStore'
-import { TextBoxView } from './TextBox'
+import { finishEditing, TextBoxView } from './TextBox'
 import './deck.css'
 
 /** The text boxes over the stage. Each slide has its own, and they crossfade with the brain. */
@@ -13,8 +13,12 @@ export function TextLayer() {
       className="text-layer"
       data-input={inputMode || undefined}
       onPointerDown={(event) => {
+        const target = event.target as Element
+        // A press anywhere outside the box being typed in ends the typing. A mouse does this by
+        // taking focus away; a tap on a touch screen does not, so it is done here.
+        if (useDeck.getState().editingId && !target.closest('.tb[data-editing]')) finishEditing()
         // A press on empty space, not on a box, clears the selection.
-        if (!(event.target as Element).closest('.tb')) useDeck.getState().select(null)
+        if (!target.closest('.tb')) useDeck.getState().select(null)
       }}
     >
       <AnimatePresence initial={false}>

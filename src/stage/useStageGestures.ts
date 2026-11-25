@@ -1,4 +1,6 @@
 import { useEffect } from 'react'
+import { useDeck } from '../deck/deckStore'
+import { stepSlide } from '../deck/slides'
 import { useStage } from './focusStore'
 import { createTapDetector, pinchToExplode, pushRipple, wheelToExplode } from './gestures'
 import { interaction, interactionTime } from './interaction'
@@ -9,6 +11,8 @@ const WHEEL_TURN = 0.0045
 /** A press that travels further than this is a drag, not a tap. */
 const TAP_TRAVEL = 10
 const TAP_MS = 450
+/** A quick sideways flick of one finger changes slide: at least this far, and mostly sideways. */
+const SWIPE = { travel: 60, ms: 700, ratio: 1.5 }
 
 /** Text boxes, toolbars and dialogs keep their own clicks, drags and double clicks. */
 const UI = '.tb, .toolbar, .password-backdrop, button, input, textarea, select, a, [contenteditable="true"]'
@@ -21,6 +25,8 @@ interface Press {
   startY: number
   time: number
   moved: boolean
+  /** Another finger joined in, so this is a pinch and not a swipe. */
+  pinched: boolean
 }
 
 /**
@@ -63,6 +69,14 @@ export function useStageGestures() {
       useStage.getState().setExplore(on)
     }
 
+    // Not while turning the brain, where a drag turns it, or while typing in a box.
+    const isSwipe = (press: Press, event: PointerEvent) => {
+      if (press.pinched || exploring() || useDeck.getState().editingId) return false
+      const dx = Math.abs(event.clientX - press.startX)
+      const dy = Math.abs(event.clientY - press.startY)
+      return event.timeStamp - press.time <= SWIPE.ms && dx >= SWIPE.travel && dx >= dy * SWIPE.ratio
+    }
+
     const onBrain = (x: number, y: number) => {
       const brain = interaction.brainOnScreen
       return brain.radius > 0 && Math.hypot(x - brain.x, y - brain.y) <= brain.radius
@@ -78,12 +92,16 @@ export function useStageGestures() {
         startY: event.clientY,
         time: event.timeStamp,
         moved: false,
+        pinched: false,
       })
       if (presses.size === 2) pinchSpread = spread()
       // More than one finger down is a pinch, never a tap.
       if (presses.size > 1) {
         taps.reset()
-        for (const press of presses.values()) press.moved = true
+        for (const press of presses.values()) {
+          press.moved = true
+          press.pinched = true
+        }
       }
     }
 
@@ -115,6 +133,11 @@ export function useStageGestures() {
       presses.delete(event.pointerId)
       if (event.pointerType !== 'mouse') interaction.pointer.present = false
       if (!press || event.type === 'pointercancel') return
+      if (event.pointerType !== 'mouse' && isSwipe(press, event)) {
+        taps.reset()
+        stepSlide(event.clientX < press.startX ? 1 : -1)
+        return
+      }
       if (press.moved || event.timeStamp - press.time > TAP_MS) {
         taps.reset()
         return

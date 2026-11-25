@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react'
+import { flushSync } from 'react-dom'
 import { motion } from 'motion/react'
+import { createTapDetector } from '../stage/gestures'
 import { useDeck, type TextBox } from './deckStore'
 import { dragSize, fitSize, type ResizeHandle } from './resize'
 
@@ -17,6 +19,29 @@ interface Gesture {
   pointerY: number
   rect: DOMRect
   moved: boolean
+  /** Whether the box was already selected before this press. */
+  wasSelected: boolean
+}
+
+/** A finger may wander this far, in pixels, and still count as a tap rather than a drag. */
+const TAP_SLOP = { mouse: 3, touch: 10 }
+
+/**
+ * Starts typing in a box, from inside the tap or click that asked for it. The box renders as
+ * editable straight away and takes focus before the event is over: iOS and Android only open the
+ * on-screen keyboard for focus given during the user's own gesture, not a frame later.
+ */
+export function beginEditing(id: string) {
+  flushSync(() => useDeck.getState().startEditing(id))
+  const text = document.querySelector<HTMLElement>(`.tb[data-box-id="${CSS.escape(id)}"] .tb-text[contenteditable]`)
+  text?.focus({ preventScroll: true })
+}
+
+/** Ends typing and puts the on-screen keyboard away. */
+export function finishEditing() {
+  useDeck.getState().stopEditing()
+  const active = document.activeElement
+  if (active instanceof HTMLElement && active.isContentEditable) active.blur()
 }
 
 type Live = Partial<Pick<TextBox, 'x' | 'y' | 'width' | 'height'>>
@@ -75,6 +100,9 @@ export function TextBoxView({ box }: { box: TextBox }) {
   const filled = useRef(false)
   const gesture = useRef<Gesture | null>(null)
   const caretAt = useRef<{ x: number; y: number } | null>(null)
+  const handleTaps = useRef(createTapDetector())
+  // A touch screen may also send a double click after a double tap, which is handled already.
+  const lastPointer = useRef('mouse')
   // Position and width follow the pointer locally, and are saved once when the drag ends.
   const liveRef = useRef<Live | null>(null)
   const [live, setLiveState] = useState<Live | null>(null)
@@ -104,6 +132,7 @@ export function TextBoxView({ box }: { box: TextBox }) {
   }, [editing])
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    lastPointer.current = event.pointerType
     if (!inputMode || event.button !== 0) return
     const target = event.target as HTMLElement
     const handle = target.dataset.handle as ResizeHandle | undefined
@@ -111,6 +140,7 @@ export function TextBoxView({ box }: { box: TextBox }) {
     if (editing && !handle) return
     // Keeps the caret in the text while the box changes size.
     if (handle) event.preventDefault()
+    const wasSelected = useDeck.getState().selectedId === box.id
     useDeck.getState().select(box.id)
     gesture.current = {
       handle,
@@ -118,6 +148,7 @@ export function TextBoxView({ box }: { box: TextBox }) {
       pointerY: event.clientY,
       rect: boxRef.current!.getBoundingClientRect(),
       moved: false,
+      wasSelected,
     }
     ;(handle ? target : event.currentTarget).setPointerCapture(event.pointerId)
   }
@@ -127,7 +158,7 @@ export function TextBoxView({ box }: { box: TextBox }) {
     if (!g) return
     const dx = event.clientX - g.pointerX
     const dy = event.clientY - g.pointerY
-    if (!g.moved && Math.hypot(dx, dy) < 3) return
+    if (!g.moved && Math.hypot(dx, dy) < (event.pointerType === 'mouse' ? TAP_SLOP.mouse : TAP_SLOP.touch)) return
     g.moved = true
     const { innerWidth: width, innerHeight: height } = window
     if (g.handle) {
@@ -140,24 +171,35 @@ export function TextBoxView({ box }: { box: TextBox }) {
     }
   }
 
-  const endGesture = (save: boolean) => {
+  const endGesture = (event: PointerEvent<HTMLDivElement>, save: boolean) => {
     const g = gesture.current
     const changes = liveRef.current
     gesture.current = null
     setLive(null)
     if (save && g?.moved && changes) useDeck.getState().updateBox(box.id, changes)
+
+    // On a touch screen, where double clicks are unreliable: tapping a box that is already
+    // selected starts typing in it, and a double tap on a handle fits the box to its text again.
+    if (!save || !g || g.moved || event.pointerType === 'mouse') return
+    if (g.handle) {
+      if (handleTaps.current.tap({ x: event.clientX, y: event.clientY, time: event.timeStamp })) {
+        useDeck.getState().updateBox(box.id, fitSize(g.handle))
+      }
+    } else if (g.wasSelected) {
+      caretAt.current = { x: event.clientX, y: event.clientY }
+      beginEditing(box.id)
+    }
   }
 
   const onDoubleClick = (event: MouseEvent<HTMLDivElement>) => {
-    if (!inputMode) return
-    const deck = useDeck.getState()
+    if (!inputMode || lastPointer.current !== 'mouse') return
     const handle = (event.target as HTMLElement).dataset.handle as ResizeHandle | undefined
     if (handle) {
-      deck.updateBox(box.id, fitSize(handle))
+      useDeck.getState().updateBox(box.id, fitSize(handle))
       return
     }
     caretAt.current = { x: event.clientX, y: event.clientY }
-    deck.startEditing(box.id)
+    beginEditing(box.id)
   }
 
   const shown = { ...box, ...live }
@@ -165,6 +207,7 @@ export function TextBoxView({ box }: { box: TextBox }) {
     <motion.div
       ref={boxRef}
       className="tb"
+      data-box-id={box.id}
       data-style={box.style}
       data-color={box.color}
       data-look={box.look}
@@ -180,8 +223,8 @@ export function TextBoxView({ box }: { box: TextBox }) {
       }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
-      onPointerUp={() => endGesture(true)}
-      onPointerCancel={() => endGesture(false)}
+      onPointerUp={(event) => endGesture(event, true)}
+      onPointerCancel={(event) => endGesture(event, false)}
       onDoubleClick={onDoubleClick}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -204,9 +247,9 @@ export function TextBoxView({ box }: { box: TextBox }) {
       {!editing && <ShownText text={box.text} />}
       {inputMode && selected && (
         <>
-          <div className="tb-handle" data-handle="width" title="Drag to set the width. Double-click to fit the text." />
-          <div className="tb-handle" data-handle="height" title="Drag to set the length. Double-click to fit the text." />
-          <div className="tb-handle" data-handle="both" title="Drag to set the length and width. Double-click to fit the text." />
+          <div className="tb-handle" data-handle="width" title="Drag to set the width. Double-click or double-tap to fit the text." />
+          <div className="tb-handle" data-handle="height" title="Drag to set the length. Double-click or double-tap to fit the text." />
+          <div className="tb-handle" data-handle="both" title="Drag to set the length and width. Double-click or double-tap to fit the text." />
         </>
       )}
     </motion.div>

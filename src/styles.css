@@ -27,9 +27,10 @@ body,
   inset: 0;
 }
 
-/* A double tap on the stage is for the brain, not for zooming the page. */
+/* A double tap on the stage is for the brain, not for zooming the page, and a sideways swipe
+   changes slide rather than panning it. */
 body {
-  touch-action: manipulation;
+  touch-action: pan-y pinch-zoom;
 }
 
 /* While the viewer is turning the brain, drags and pinches go to it and not to the page. */

@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { flushSync } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
 import {
   DEFAULT_CURSOR_EFFECT,
@@ -12,6 +13,7 @@ import { useDeck, type BoxLook, type TextColor, type TextStyle } from './deckSto
 import { useDeckKeys } from './keys'
 import { PasswordGate } from './PasswordGate'
 import { goToSection, goToSlide } from './slides'
+import { beginEditing, finishEditing } from './TextBox'
 import { ConflictPrompt, HistoryPanel } from './SyncDialogs'
 
 const STYLES: { value: TextStyle; label: string }[] = [
@@ -156,6 +158,9 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
   const slide = useDeck((s) => s.slide)
   const sections = useDeck((s) => s.sections)
   const selected = useDeck((s) => s.boxes.find((box) => box.id === s.selectedId))
+  const editingId = useDeck((s) => s.editingId)
+  // The kind of pointer that pressed a section tab: a tap on the open tab renames it on a touch screen.
+  const tabPointer = useRef('mouse')
   const format = useDeck((s) => s.format)
   const deck = useDeck.getState()
 
@@ -165,6 +170,20 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
 
   // With a box selected the controls show and change that box. Otherwise they set up the next one.
   const shown = selected ?? format
+
+  const startRename = (id: string, title: string) => {
+    // Rendered at once, so the field takes focus inside the tap and the on-screen keyboard opens.
+    flushSync(() => {
+      setRenamingId(id)
+      setDraftTitle(title)
+    })
+  }
+
+  const addBox = () => {
+    flushSync(() => deck.addBox())
+    const id = useDeck.getState().editingId
+    if (id) beginEditing(id)
+  }
 
   const commitRename = () => {
     if (renamingId && draftTitle.trim()) {
@@ -182,7 +201,8 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
         exit={{ opacity: 0 }}
         transition={{ duration: 0.2 }}
       >
-        Drag a box to move it · Drag its handles to resize · Double-click a box or section tab to edit text · Esc when done
+        Drag a box to move it · Drag its handles to resize · Double-click a box, or tap it again, to edit its text · Esc or
+        Finish when done
       </motion.p>
 
       <motion.div
@@ -223,11 +243,16 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
                 type="button"
                 className="tool-section"
                 aria-pressed={isActive}
-                title={`${index + 1}. ${sec.title} (double-click to rename)`}
-                onClick={() => goToSection(sec.id)}
+                title={`${index + 1}. ${sec.title} (double-click, or tap again, to rename)`}
+                onPointerDown={(event) => {
+                  tabPointer.current = event.pointerType
+                }}
+                onClick={() => {
+                  if (isActive && tabPointer.current !== 'mouse') startRename(sec.id, sec.title)
+                  else goToSection(sec.id)
+                }}
                 onDoubleClick={() => {
-                  setRenamingId(sec.id)
-                  setDraftTitle(sec.title)
+                  if (tabPointer.current === 'mouse') startRename(sec.id, sec.title)
                 }}
               >
                 <span className="section-theme-dot" data-backdrop={sec.backdrop} />
@@ -375,10 +400,28 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
 
         <span className="tool-sep" />
 
-        <button type="button" className="tool-add" onClick={deck.addBox}>
+        <button type="button" className="tool-add" onClick={addBox}>
           <Icon d="M8 3v10 M3 8h10" />
           Text box
         </button>
+
+        {editingId ? (
+          <button type="button" className="tool-action" title="Finish typing (Esc)" onClick={finishEditing}>
+            <Icon d="M3.5 8.5l3 3 6-7" />
+            Finish
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="tool-action"
+            disabled={!selected}
+            title="Edit the selected box's text (Enter)"
+            onClick={() => selected && beginEditing(selected.id)}
+          >
+            <Icon d="M10.6 2.6l2.8 2.8L5.2 13.6H2.4v-2.8z" />
+            Edit text
+          </button>
+        )}
 
         <span className="tool-sep" />
 
