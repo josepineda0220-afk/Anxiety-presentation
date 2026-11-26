@@ -105,14 +105,21 @@ service cloud.firestore {
         && isListOf(data.slideTitles, count, '\n', '[^\n]{0,200}(\n[^\n]{0,200}){0,29}')
         && isListOf(data.slideRegions, count, ';', regions + '(;' + regions + '){0,29}')
         && isListOf(data.slideCircuits, count, ';', '(cstc)?(;(cstc)?){0,29}')
-        && (!('slideSides' in data) || isListOf(data.slideSides, count, ';', '(left)?(;(left)?){0,29}'));
+        && (!('slideSides' in data) || isListOf(data.slideSides, count, ';', '(left)?(;(left)?){0,29}'))
+        // A slide's own look, or '' where it uses the section's.
+        && (!('slideBackdrops' in data)
+          || isListOf(data.slideBackdrops, count, ';', '(blue|purple|pink|black)?(;(blue|purple|pink|black)?){0,29}'))
+        && (!('slideCursors' in data)
+          || isListOf(data.slideCursors, count, ';', '(part|ripple|off)?(;(part|ripple|off)?){0,29}'))
+        && (!('slideParticles' in data)
+          || isListOf(data.slideParticles, count, ';', '(plain|sparkle)?(;(plain|sparkle)?){0,29}'));
     }
 
     function isValidSection(data) {
       return hasExactly(data,
           ['schemaVersion', 'revision', 'updatedAt', 'updatedBy', 'title', 'backdrop', 'deleted',
             'slideIds', 'slideTitles', 'slideRegions', 'slideCircuits'],
-          ['cursorEffect', 'particles', 'slideSides'])
+          ['cursorEffect', 'particles', 'slideSides', 'slideBackdrops', 'slideCursors', 'slideParticles'])
         && isStamped(data)
         && data.title is string
         && data.title.size() >= 1

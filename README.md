@@ -12,10 +12,15 @@ password can edit it, from any device, at the same time as everyone else.
 - Number keys **1–9** jump directly to Sections 1–9.
 - Press **I** (or move the mouse and click **Input mode** at the bottom right) and enter the team
   password to edit:
-  - Switch between sections in the top bar, double-click a section tab to rename it, or use **+ Section** / **−** to add or remove sections.
-  - Toggle each section's **Backdrop** between **Blue** and **Lavender** (the 3D background smoothly crossfades when moving between sections).
-  - Choose each section's **Cursor** effect: **Move away** (the dots step aside around the cursor), **Ripple** (rings spread through the background colour and carry the dots with them), or **Off**.
+  - The tools come in three rows: **sections**, **this slide**, and **text**. Everything works with a
+    mouse or on a touchscreen. **Hide tools** folds them down to one small bar; **Show tools** brings them back.
+  - Switch between sections in the top row, double-click (or tap the open tab again) to rename one, and
+    **drag a section tab** to move the section (or focus it and press `Alt` + `←`/`→`). **+ Section**,
+    **Rename** and **Remove** sit beside the tabs.
   - Add or remove slides within a section using **+** / **−** next to the slide numbers.
+  - Each slide has its own **Brain** side, **Backdrop** colour, **Cursor** effect (**Move away**, **Ripple**
+    or **Off**) and **Dots** (**Plain** or **Sparkle**). A new slide starts with the look of the slide it
+    was added from, and **All slides** gives every slide in the section the current slide's look.
   - Click **Text box** to add text, drag to position, drag handles to resize, and double-click to edit.
   - **Size** (Title, Heading, Body, Small) and **colour** work like a word processor. With words selected,
     they change those words. With nothing selected, they apply to what you type next. With a box

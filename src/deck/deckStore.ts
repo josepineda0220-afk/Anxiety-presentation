@@ -8,11 +8,14 @@ import {
   DEFAULT_PARTICLE_STYLE,
   SEED_SECTIONS,
   makeTemplateSlideBoxes,
+  sectionLook,
+  slideLook,
   type BackdropTheme,
   type BrainSide,
   type CursorEffect,
   type ParticleStyle,
   type Section,
+  type SlideLook,
   type SlideSpec,
 } from '../data/sections'
 import { useStage } from '../stage/focusStore'
@@ -104,6 +107,15 @@ interface DeckState {
    * or colour goes to the selected text, or with nothing selected to what is typed next.
    */
   applyFormat: (patch: Partial<TextFormat>) => void
+  /**
+   * Gives one slide its own background colour, cursor effect or dot style. A choice that matches
+   * its section's is not kept, so the slide follows the section again.
+   */
+  setSlideLook: (slideId: string, patch: Partial<SlideLook>) => void
+  /** Makes a slide's look the look of every slide in its section. */
+  applySlideLookToSection: (slideId: string) => void
+  /** Moves a section to a new place in the deck (0 is first). */
+  moveSection: (sectionId: string, toIndex: number) => void
   /** Sets the background color theme for a section and updates the stage if active. */
   setSectionBackdrop: (sectionId: string, backdrop: BackdropTheme) => void
   /** Sets what the background does around the cursor in a section, and updates the stage if active. */
@@ -172,11 +184,38 @@ function finishEditing(state: DeckState): Partial<DeckState> {
   }
 }
 
-/** Gives the stage a section's background colour, cursor effect and dot style. */
-function showSectionOnStage(section: Pick<Section, 'backdrop' | 'cursorEffect' | 'particles'>) {
-  useStage.getState().setBackdrop(section.backdrop)
-  useStage.getState().setCursorEffect(section.cursorEffect ?? DEFAULT_CURSOR_EFFECT)
-  useStage.getState().setParticles(section.particles ?? DEFAULT_PARTICLE_STYLE)
+/** Gives the stage a slide's background colour, cursor effect and dot style. */
+function showLookOnStage(look: SlideLook) {
+  const stage = useStage.getState()
+  if (stage.backdrop !== look.backdrop) stage.setBackdrop(look.backdrop)
+  if (stage.cursorEffect !== look.cursorEffect) stage.setCursorEffect(look.cursorEffect)
+  if (stage.particles !== look.particles) stage.setParticles(look.particles)
+}
+
+/** After a section or slide look changed: the stage shows the current slide's. */
+function showCurrentLook(sections: Section[], slideId: string) {
+  const section = findSectionForSlide(sections, slideId)
+  if (section) showLookOnStage(slideLook(section, section.slides.find((sl) => sl.id === slideId)))
+}
+
+/** A look as a section keeps it: options at their default are left out. */
+function sectionDefaults(look: SlideLook): Pick<Section, 'backdrop' | 'cursorEffect' | 'particles'> {
+  return {
+    backdrop: look.backdrop,
+    ...(look.cursorEffect !== DEFAULT_CURSOR_EFFECT && { cursorEffect: look.cursorEffect }),
+    ...(look.particles !== DEFAULT_PARTICLE_STYLE && { particles: look.particles }),
+  }
+}
+
+/** A slide's own look choices, without any that match its section's. */
+function withLook(slide: SlideSpec, look: Partial<SlideLook>, section: SlideLook): SlideSpec {
+  const { backdrop: _b, cursorEffect: _c, particles: _p, ...rest } = slide
+  const next: SlideSpec = { ...rest }
+  const own = { backdrop: slide.backdrop, cursorEffect: slide.cursorEffect, particles: slide.particles, ...look }
+  if (own.backdrop && own.backdrop !== section.backdrop) next.backdrop = own.backdrop
+  if (own.cursorEffect && own.cursorEffect !== section.cursorEffect) next.cursorEffect = own.cursorEffect
+  if (own.particles && own.particles !== section.particles) next.particles = own.particles
+  return next
 }
 
 /** Gives the stage a slide's focus and the side its brain sits on. */
@@ -205,13 +244,7 @@ function settleSlide(state: DeckState, sections: Section[]): Partial<DeckState> 
   const stage = useStage.getState()
   if (!sameData(stage.focus, slide.focus)) stage.setFocus(slide.focus)
   if (stage.side !== (slide.side ?? DEFAULT_BRAIN_SIDE)) stage.setSide(slide.side ?? DEFAULT_BRAIN_SIDE)
-  if (
-    stage.backdrop !== section.backdrop ||
-    stage.cursorEffect !== (section.cursorEffect ?? DEFAULT_CURSOR_EFFECT) ||
-    stage.particles !== (section.particles ?? DEFAULT_PARTICLE_STYLE)
-  ) {
-    showSectionOnStage(section)
-  }
+  showLookOnStage(slideLook(section, slide))
   if (slide.id === state.slide) return { sections }
   return { sections, slide: slide.id, selectedId: null, editingId: null }
 }
@@ -387,27 +420,75 @@ export const useDeck = create<DeckState>()(
           }
         }),
 
+      setSlideLook: (slideId, patch) =>
+        set((s) => {
+          const sections = s.sections.map((sec) =>
+            sec.slides.some((sl) => sl.id === slideId)
+              ? { ...sec, slides: sec.slides.map((sl) => (sl.id === slideId ? withLook(sl, patch, sectionLook(sec)) : sl)) }
+              : sec,
+          )
+          showCurrentLook(sections, s.slide)
+          return { sections }
+        }),
+
+      applySlideLookToSection: (slideId) =>
+        set((s) => {
+          const section = findSectionForSlide(s.sections, slideId)
+          const slide = section?.slides.find((sl) => sl.id === slideId)
+          if (!section || !slide) return {}
+          const updated: Section = {
+            id: section.id,
+            title: section.title,
+            ...sectionDefaults(slideLook(section, slide)),
+            // Each slide's own choices go, so every slide now shows this one's look.
+            slides: section.slides.map(({ backdrop: _b, cursorEffect: _c, particles: _p, ...sl }) => sl),
+          }
+          const sections = s.sections.map((sec) => (sec.id === section.id ? updated : sec))
+          showCurrentLook(sections, s.slide)
+          return { sections }
+        }),
+
+      moveSection: (sectionId, toIndex) =>
+        set((s) => {
+          const from = s.sections.findIndex((sec) => sec.id === sectionId)
+          const to = Math.max(0, Math.min(s.sections.length - 1, Math.round(toIndex)))
+          if (from === -1 || from === to) return {}
+          const sections = [...s.sections]
+          const [moved] = sections.splice(from, 1)
+          sections.splice(to, 0, moved)
+          return { sections }
+        }),
+
       setSectionBackdrop: (sectionId, backdrop) =>
         set((s) => {
-          const sections = s.sections.map((sec) => (sec.id === sectionId ? { ...sec, backdrop } : sec))
-          const activeSec = findSectionForSlide(sections, s.slide)
-          if (activeSec?.id === sectionId) showSectionOnStage(activeSec)
+          const sections = s.sections.map((sec) =>
+            sec.id === sectionId
+              ? { ...sec, backdrop, slides: sec.slides.map((sl) => withLook(sl, {}, sectionLook({ ...sec, backdrop }))) }
+              : sec,
+          )
+          showCurrentLook(sections, s.slide)
           return { sections }
         }),
 
       setSectionCursorEffect: (sectionId, cursorEffect) =>
         set((s) => {
-          const sections = s.sections.map((sec) => (sec.id === sectionId ? { ...sec, cursorEffect } : sec))
-          const activeSec = findSectionForSlide(sections, s.slide)
-          if (activeSec?.id === sectionId) showSectionOnStage(activeSec)
+          const sections = s.sections.map((sec) =>
+            sec.id === sectionId
+              ? { ...sec, cursorEffect, slides: sec.slides.map((sl) => withLook(sl, {}, sectionLook({ ...sec, cursorEffect }))) }
+              : sec,
+          )
+          showCurrentLook(sections, s.slide)
           return { sections }
         }),
 
       setSectionParticles: (sectionId, particles) =>
         set((s) => {
-          const sections = s.sections.map((sec) => (sec.id === sectionId ? { ...sec, particles } : sec))
-          const activeSec = findSectionForSlide(sections, s.slide)
-          if (activeSec?.id === sectionId) showSectionOnStage(activeSec)
+          const sections = s.sections.map((sec) =>
+            sec.id === sectionId
+              ? { ...sec, particles, slides: sec.slides.map((sl) => withLook(sl, {}, sectionLook({ ...sec, particles }))) }
+              : sec,
+          )
+          showCurrentLook(sections, s.slide)
           return { sections }
         }),
 
@@ -442,7 +523,9 @@ export const useDeck = create<DeckState>()(
         const cleaned = finishEditing(s)
         const baseBoxes = cleaned.boxes ?? s.boxes
         const activeSec = findSectionForSlide(s.sections, s.slide)
-        const backdrop: BackdropTheme = activeSec?.backdrop ?? 'blue'
+        // A new section starts with the look of the slide it was added from.
+        const look = activeSec ? slideLook(activeSec, activeSec.slides.find((sl) => sl.id === s.slide)) : null
+        const backdrop: BackdropTheme = look?.backdrop ?? 'blue'
         const sectionTitle = customTitle?.trim() || `New Section ${s.sections.length + 1}`
         const sectionId = `sec-${newId()}`
         const slideId = `slide-${newId()}`
@@ -455,8 +538,7 @@ export const useDeck = create<DeckState>()(
           id: sectionId,
           title: sectionTitle,
           backdrop,
-          ...(activeSec?.cursorEffect ? { cursorEffect: activeSec.cursorEffect } : {}),
-          ...(activeSec?.particles ? { particles: activeSec.particles } : {}),
+          ...(look && sectionDefaults(look)),
           slides: [slideSpec],
         }
         const templateBoxes: TextBox[] = makeTemplateSlideBoxes(sectionTitle, 'Overview & key points').map((box) => ({
@@ -474,7 +556,7 @@ export const useDeck = create<DeckState>()(
           editingId: null,
         })
         showSlideOnStage(slideSpec)
-        showSectionOnStage(newSection)
+        showLookOnStage(sectionLook(newSection))
         return newSection
       },
 
@@ -494,7 +576,7 @@ export const useDeck = create<DeckState>()(
             const nextSection = sections[Math.min(index, sections.length - 1)]
             const nextSlide = nextSection.slides[0]
             showSlideOnStage(nextSlide)
-            showSectionOnStage(nextSection)
+            showLookOnStage(slideLook(nextSection, nextSlide))
             return {
               ...cleaned,
               sections,
@@ -526,6 +608,9 @@ export const useDeck = create<DeckState>()(
           title: `${targetSec.title} (${slideNumber})`,
           focus: IDLE_FOCUS,
           ...(fromSlide?.side === 'left' && { side: 'left' as const }),
+          ...(fromSlide?.backdrop && { backdrop: fromSlide.backdrop }),
+          ...(fromSlide?.cursorEffect && { cursorEffect: fromSlide.cursorEffect }),
+          ...(fromSlide?.particles && { particles: fromSlide.particles }),
         }
         const templateBoxes: TextBox[] = makeTemplateSlideBoxes(
           targetSec.title,
@@ -549,7 +634,7 @@ export const useDeck = create<DeckState>()(
           editingId: null,
         })
         showSlideOnStage(newSlide)
-        showSectionOnStage(targetSec)
+        showLookOnStage(slideLook(targetSec, newSlide))
         return newSlide
       },
 
@@ -571,7 +656,7 @@ export const useDeck = create<DeckState>()(
           if (s.slide === targetSlideId) {
             const nextSlide = remainingSlides[Math.min(slideIndex, remainingSlides.length - 1)]
             showSlideOnStage(nextSlide)
-            showSectionOnStage(section)
+            showLookOnStage(slideLook(section, nextSlide))
             return {
               ...cleaned,
               sections,

@@ -15,6 +15,7 @@
 import { mergeKeepingBoth, threeWayMerge } from './merge'
 import {
   SNAPSHOT_INTERVAL_MS,
+  arrangeLike,
   parsePartKey,
   partKey,
   partProblem,
@@ -62,6 +63,11 @@ export interface SyncTransport {
   fetchPart(kind: PartKind, id: string): Promise<RemotePart>
   writePart(write: PartWrite): Promise<void>
   updateIndex(change: IndexChange): Promise<void>
+  /**
+   * Puts the index's sections in this order, keeping any it leaves out after them. Resolves with the
+   * index revision that has the new order.
+   */
+  reorderSections(order: string[]): Promise<number>
   saveSnapshot(seq: number, snapshot: DeckSnapshot, deckRevision: number): Promise<void>
   /** Writes every part and the index lists together, or none of them. */
   writeDeck(writes: PartWrite[], lists: { sectionOrder: string[]; boxIds: string[] }, create: boolean): Promise<void>
@@ -160,6 +166,13 @@ export class SyncEngine {
   private pendingIndex: IndexChange = { addSections: [], removeSections: [], addBoxes: [], removeBoxes: [] }
   private indexInFlight = false
   private indexRetryHandle: unknown = null
+  /**
+   * A section order picked on this device. It is shown until the index has it: `revision` is the
+   * index revision that saved it, or null while it is still to be saved.
+   */
+  private wantedOrder: { order: string[]; revision: number | null } | null = null
+  private orderInFlight = false
+  private orderRetryHandle: unknown = null
   private snapshotInFlight = false
   private lastSnapshotTry = -Infinity
   private lastSavedAt: number | null = null
@@ -194,6 +207,7 @@ export class SyncEngine {
     }
     if (this.flushHandle) this.timers.clear(this.flushHandle)
     if (this.indexRetryHandle) this.timers.clear(this.indexRetryHandle)
+    if (this.orderRetryHandle) this.timers.clear(this.orderRetryHandle)
     this.parts.clear()
   }
 
@@ -203,6 +217,7 @@ export class SyncEngine {
     if (writable) {
       this.createDeckIfMissing()
       this.scheduleFlush(0)
+      this.flushOrder()
     }
     this.emit()
   }
@@ -213,7 +228,13 @@ export class SyncEngine {
 
   state(): EngineState {
     const conflicts: Conflict[] = []
-    let saving = this.touched.size > 0 || this.indexInFlight || this.hasPendingIndex() || this.restoring || this.creating
+    let saving =
+      this.touched.size > 0 ||
+      this.indexInFlight ||
+      this.hasPendingIndex() ||
+      this.restoring ||
+      this.creating ||
+      (this.wantedOrder !== null && this.wantedOrder.revision === null)
     let held = 0
     let problem = this.problem
     for (const part of this.parts.values()) {
@@ -256,6 +277,7 @@ export class SyncEngine {
         this.parts.delete(key)
       }
     }
+    this.settleOrder()
     if (this.ready) this.deck.orderSections(this.sectionOrder())
     else this.hydrateIfLoaded()
     this.emit()
@@ -553,9 +575,59 @@ export class SyncEngine {
 
   /** Section order: the cloud's, then sections only this device has so far. */
   private sectionOrder(): string[] {
-    const listed = this.index?.sectionOrder ?? []
+    const cloud = this.index?.sectionOrder ?? []
+    // A reorder made here wins until the index has caught up with it.
+    const listed = this.wantedOrder ? arrangeLike(cloud, this.wantedOrder.order) : cloud
     const local = this.deck.ids().sectionOrder
     return [...listed, ...local.filter((id) => !listed.includes(id))]
+  }
+
+  /** The person dragged the sections into a new order here. */
+  sectionsReordered(order: string[]) {
+    if (!this.ready || !this.writable) return
+    this.wantedOrder = { order: [...order], revision: null }
+    this.flushOrder()
+    this.emit()
+  }
+
+  private flushOrder() {
+    const wanted = this.wantedOrder
+    if (!wanted || wanted.revision !== null || this.orderInFlight || this.orderRetryHandle || !this.writable) return
+    this.orderInFlight = true
+    this.transport.reorderSections(wanted.order).then(
+      (revision) => {
+        this.orderInFlight = false
+        // Another drag while this one saved: save that one now.
+        if (this.wantedOrder !== wanted) this.flushOrder()
+        else {
+          wanted.revision = revision
+          this.settleOrder()
+        }
+        this.emit()
+      },
+      (error: unknown) => {
+        this.orderInFlight = false
+        if (error instanceof SyncError && error.reason === 'refused') {
+          // The rules said no: go back to the order everyone else sees.
+          if (this.wantedOrder === wanted) this.wantedOrder = null
+          this.deck.orderSections(this.sectionOrder())
+        } else {
+          this.orderRetryHandle = this.timers.set(() => {
+            this.orderRetryHandle = null
+            this.flushOrder()
+          }, 5000)
+        }
+        this.emit()
+      },
+    )
+  }
+
+  /** Forgets a saved reorder once the index has it, so later reorders by anyone show. */
+  private settleOrder() {
+    const wanted = this.wantedOrder
+    if (wanted?.revision == null || !this.index || this.index.revision < wanted.revision) return
+    this.wantedOrder = null
+    if (this.ready) this.deck.orderSections(this.sectionOrder())
   }
 
   private noteIndexMembership(part: PartState) {
@@ -659,6 +731,8 @@ export class SyncEngine {
     this.emit()
     try {
       await this.waitForSaves()
+      // The version brings its own section order.
+      this.wantedOrder = null
       for (let attempt = 0; ; attempt++) {
         const writes = await this.restoreWrites(snapshot)
         try {
@@ -726,7 +800,7 @@ export class SyncEngine {
     const giveUpAt = this.timers.now() + limitMs
     return new Promise((resolve) => {
       const check = () => {
-        const busy = [...this.parts.values()].some((part) => part.inFlight) || this.indexInFlight
+        const busy = [...this.parts.values()].some((part) => part.inFlight) || this.indexInFlight || this.orderInFlight
         if (!busy || this.timers.now() >= giveUpAt) resolve()
         else this.timers.set(check, 100)
       }

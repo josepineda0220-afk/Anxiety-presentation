@@ -72,6 +72,13 @@ function changedParts(before: { sections: Section[]; boxes: TextBox[] }, after: 
   return keys
 }
 
+/** True when the same sections are now in another order. Adding or removing one is not a reorder. */
+function reordered(before: Section[], after: Section[]) {
+  if (before === after || before.length !== after.length) return false
+  const ids = new Set(before.map((s) => s.id))
+  return after.every((s) => ids.has(s.id)) && after.some((s, i) => s.id !== before[i].id)
+}
+
 /** Starts following the cloud deck, and saving edits while signed in. Returns a function that stops. */
 export function startCloudSync(): () => void {
   const firebase = getFirebase()
@@ -99,6 +106,7 @@ export function startCloudSync(): () => void {
     if (applying) return
     const keys = changedParts(before, state)
     if (keys.length > 0) syncEngine.localChanged(keys)
+    if (reordered(before.sections, state.sections)) syncEngine.sectionsReordered(state.sections.map((s) => s.id))
     if (before.editingId && before.editingId !== state.editingId) syncEngine.editingStopped(partKey('box', before.editingId))
   })
 

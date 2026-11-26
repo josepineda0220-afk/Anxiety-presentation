@@ -28,23 +28,56 @@ export type BrainSide = 'left' | 'right'
 /** For slides saved before the option existed: the brain on the right, text on the left. */
 export const DEFAULT_BRAIN_SIDE: BrainSide = 'right'
 
+/** How a slide's background looks and behaves. */
+export interface SlideLook {
+  backdrop: BackdropTheme
+  cursorEffect: CursorEffect
+  particles: ParticleStyle
+}
+
 export interface SlideSpec {
   id: string
   title: string
   focus: Focus
   /** Left out, it is DEFAULT_BRAIN_SIDE. */
   side?: BrainSide
+  /** This slide's own background colour. Left out, it is the section's. */
+  backdrop?: BackdropTheme
+  /** This slide's own cursor effect. Left out, it is the section's. */
+  cursorEffect?: CursorEffect
+  /** This slide's own dot style. Left out, it is the section's. */
+  particles?: ParticleStyle
 }
 
 export interface Section {
   id: string
   title: string
+  /** The background for slides that do not pick their own. */
   backdrop: BackdropTheme
   /** Left out, it is DEFAULT_CURSOR_EFFECT. */
   cursorEffect?: CursorEffect
   /** Left out, it is DEFAULT_PARTICLE_STYLE. */
   particles?: ParticleStyle
   slides: SlideSpec[]
+}
+
+/** The look a section gives slides that do not pick their own. */
+export function sectionLook(section: Pick<Section, 'backdrop' | 'cursorEffect' | 'particles'>): SlideLook {
+  return {
+    backdrop: section.backdrop,
+    cursorEffect: section.cursorEffect ?? DEFAULT_CURSOR_EFFECT,
+    particles: section.particles ?? DEFAULT_PARTICLE_STYLE,
+  }
+}
+
+/** What a slide shows: its own choices, and the section's for the rest. */
+export function slideLook(section: Pick<Section, 'backdrop' | 'cursorEffect' | 'particles'>, slide?: SlideSpec): SlideLook {
+  const base = sectionLook(section)
+  return {
+    backdrop: slide?.backdrop ?? base.backdrop,
+    cursorEffect: slide?.cursorEffect ?? base.cursorEffect,
+    particles: slide?.particles ?? base.particles,
+  }
 }
 
 type SeedBox = Omit<TextBox, 'id' | 'slide'>

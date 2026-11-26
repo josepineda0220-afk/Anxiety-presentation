@@ -293,6 +293,62 @@ describe('presentation sections and backdrop themes', () => {
     expect(useStage.getState().backdrop).toBe('blue')
   })
 
+  it('gives one slide its own backdrop, cursor and dots, while the others keep the section’s', () => {
+    goToSection('sec-2')
+    const first = deck().slide
+    const second = deck().addSlide()!.id
+    goToSlide(first)
+
+    deck().setSlideLook(first, { backdrop: 'pink', cursorEffect: 'ripple', particles: 'sparkle' })
+    expect(useStage.getState()).toMatchObject({ backdrop: 'pink', cursorEffect: 'ripple', particles: 'sparkle' })
+
+    goToSlide(second)
+    expect(useStage.getState()).toMatchObject({ backdrop: 'blue', cursorEffect: 'part', particles: 'plain' })
+    goToSlide(first)
+    expect(useStage.getState().backdrop).toBe('pink')
+
+    // A slide added after it starts with its look.
+    const third = deck().addSlide()!
+    expect(third).toMatchObject({ backdrop: 'pink', cursorEffect: 'ripple', particles: 'sparkle' })
+
+    // Picking the section's own value again leaves no trace on the slide.
+    deck().setSlideLook(first, { backdrop: 'blue' })
+    const firstSlide = deck().sections[1].slides.find((sl) => sl.id === first)!
+    expect(firstSlide).not.toHaveProperty('backdrop')
+    expect(firstSlide.cursorEffect).toBe('ripple')
+  })
+
+  it('gives every slide in a section one slide’s look', () => {
+    goToSection('sec-2')
+    const first = deck().slide
+    const second = deck().addSlide()!.id
+    deck().setSlideLook(second, { backdrop: 'black', particles: 'sparkle' })
+    deck().setSlideLook(first, { cursorEffect: 'off' })
+
+    deck().applySlideLookToSection(second)
+    const section = deck().sections[1]
+    expect(section).toMatchObject({ backdrop: 'black', particles: 'sparkle' })
+    expect(section).not.toHaveProperty('cursorEffect')
+    for (const slide of section.slides) {
+      expect(slide).not.toHaveProperty('backdrop')
+      expect(slide).not.toHaveProperty('cursorEffect')
+      expect(slide).not.toHaveProperty('particles')
+    }
+    expect(useStage.getState()).toMatchObject({ backdrop: 'black', cursorEffect: 'part', particles: 'sparkle' })
+  })
+
+  it('moves a section to a new place', () => {
+    const ids = deck().sections.map((s) => s.id)
+    deck().moveSection(ids[0], 2)
+    expect(deck().sections.map((s) => s.id)).toEqual([ids[1], ids[2], ids[0], ...ids.slice(3)])
+    deck().moveSection(ids[0], -5)
+    expect(deck().sections.map((s) => s.id)).toEqual(ids)
+    deck().moveSection(ids[1], 99)
+    expect(deck().sections.at(-1)!.id).toBe(ids[1])
+    // Slides follow their section, so stepping through the deck takes the new order.
+    expect(getAllSlides().at(-1)!.sectionId).toBe(ids[1])
+  })
+
   it('moves the brain to a slide’s side, and keeps it for slides added after it', () => {
     deck().setSlide('1-1')
     deck().setSlideSide('1-1', 'left')

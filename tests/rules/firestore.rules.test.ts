@@ -334,6 +334,15 @@ describe('document shape', () => {
     await assertFails(setDoc(doc(editor(), `${DECK}/sections/sec-1`), sectionDoc(1, { ...one, slideRegions: [7] })))
   })
 
+  it('accepts each slide’s own backdrop, cursor and dots, and refuses values the app would never make', async () => {
+    const two = slidesOf(2)
+    const own = { ...two, slideBackdrops: ['pink', ''], slideCursors: ['', 'ripple'], slideParticles: ['sparkle', ''] }
+    await assertSucceeds(setDoc(doc(editor(), `${DECK}/sections/sec-1`), sectionDoc(1, own)))
+    await assertFails(setDoc(doc(editor(), `${DECK}/sections/sec-2`), sectionDoc(1, { ...two, slideBackdrops: ['green', ''] })))
+    await assertFails(setDoc(doc(editor(), `${DECK}/sections/sec-3`), sectionDoc(1, { ...two, slideCursors: ['ripple'] })))
+    await assertFails(setDoc(doc(editor(), `${DECK}/sections/sec-4`), sectionDoc(1, { ...two, slideParticles: ['glitter', ''] })))
+  })
+
   it('refuses a section with the old nested slides field', async () => {
     await assertFails(setDoc(doc(editor(), `${DECK}/sections/sec-1`), sectionDoc(1, { slides: sampleSection.slides })))
   })
@@ -398,6 +407,18 @@ describe('the index', () => {
     await assertSucceeds(
       updateDoc(doc(editor(), DECK), {
         boxIds: arrayUnion('box-2'),
+        revision: increment(1),
+        updatedAt: serverTimestamp(),
+        updatedBy: EDITOR_UID,
+      }),
+    )
+  })
+
+  it('lets the editor put the sections in a new order', async () => {
+    await seedIndex(10, { sectionOrder: ['sec-1', 'sec-2', 'sec-3'] })
+    await assertSucceeds(
+      updateDoc(doc(editor(), DECK), {
+        sectionOrder: ['sec-3', 'sec-1', 'sec-2'],
         revision: increment(1),
         updatedAt: serverTimestamp(),
         updatedBy: EDITOR_UID,

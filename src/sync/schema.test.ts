@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { ALL_SEED_BOXES, SEED_SECTIONS } from '../data/sections'
 import {
   LIMITS,
+  arrangeLike,
   boxFromDoc,
   boxToData,
   decodeSnapshot,
@@ -77,6 +78,33 @@ describe('stored documents', () => {
     expect(stored.slideSides).toEqual(moved.slides.map((_, i) => (i === 0 ? 'left' : '')))
     expect(sectionFromDoc(stored)?.slides.map((s) => s.side)).toEqual(moved.slides.map((_, i) => (i === 0 ? 'left' : undefined)))
     expect(storedContent('section', sectionToData(plain))).not.toHaveProperty('slideSides')
+  })
+
+  it('saves each slide’s own backdrop, cursor and dots, only for slides that pick one', () => {
+    const plain = SEED_SECTIONS[1]
+    const own = {
+      ...plain,
+      slides: [
+        { ...plain.slides[0], backdrop: 'pink' as const, cursorEffect: 'ripple' as const, particles: 'sparkle' as const },
+        { id: 'second', title: 'Second', focus: { regions: [], circuits: [] } },
+      ],
+    }
+    const stored = storedContent('section', sectionToData(own))
+    expect(stored.slideBackdrops).toEqual(['pink', ''])
+    expect(stored.slideCursors).toEqual(['ripple', ''])
+    expect(stored.slideParticles).toEqual(['sparkle', ''])
+    expect(sectionFromDoc(stored)?.slides).toEqual(sectionToData(own).slides)
+    expect(sectionFromDoc(stored)?.slides[1]).not.toHaveProperty('backdrop')
+    for (const list of ['slideBackdrops', 'slideCursors', 'slideParticles']) {
+      expect(storedContent('section', sectionToData(plain))).not.toHaveProperty(list)
+    }
+    // Values the app does not know are dropped, so the slide uses its section's.
+    expect(sectionFromDoc({ ...stored, slideBackdrops: ['green', ''] })?.slides[0]).not.toHaveProperty('backdrop')
+  })
+
+  it('puts ids in a wanted order, keeping ids it leaves out after them', () => {
+    expect(arrangeLike(['a', 'b', 'c', 'd'], ['c', 'a', 'x'])).toEqual(['c', 'a', 'b', 'd'])
+    expect(arrangeLike(['a', 'b'], [])).toEqual(['a', 'b'])
   })
 
   it('saves sparkle dots and the pink and black backdrops, and reads them back', () => {

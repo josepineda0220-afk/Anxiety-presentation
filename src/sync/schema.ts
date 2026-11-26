@@ -100,10 +100,19 @@ function cleanFocus(focus: SlideSpec['focus']): SlideSpec['focus'] {
   return { regions: [...focus.regions], circuits: [...focus.circuits] }
 }
 
-/** A slide as saved. The brain's side is kept only when it is not the default, like the section options. */
+const CURSOR_EFFECTS: readonly string[] = ['part', 'ripple', 'off']
+const PARTICLE_STYLES: readonly string[] = ['plain', 'sparkle']
+
+/**
+ * A slide as saved. The brain's side is kept only when it is not the default, like the section
+ * options, and the slide's own look only where it picked one.
+ */
 function cleanSlide(slide: SlideSpec): SlideSpec {
   const clean: SlideSpec = { id: slide.id, title: slide.title, focus: cleanFocus(slide.focus) }
   if (slide.side === 'left') clean.side = 'left'
+  if ((BACKDROP_THEMES as readonly unknown[]).includes(slide.backdrop)) clean.backdrop = slide.backdrop
+  if (CURSOR_EFFECTS.includes(slide.cursorEffect as string)) clean.cursorEffect = slide.cursorEffect
+  if (PARTICLE_STYLES.includes(slide.particles as string)) clean.particles = slide.particles
   return clean
 }
 
@@ -133,7 +142,21 @@ interface StoredSlides {
   slideCircuits: string[]
   /** 'left' or '', for the brain's side. Left out when every slide has the brain on the right. */
   slideSides?: string[]
+  /** Each slide's own backdrop, or '' to use the section's. Left out when no slide has its own. */
+  slideBackdrops?: string[]
+  /** Each slide's own cursor effect, or ''. */
+  slideCursors?: string[]
+  /** Each slide's own dot style, or ''. */
+  slideParticles?: string[]
 }
+
+/** The slide fields that are stored as an optional list of their own, with '' for "not set". */
+const OPTIONAL_SLIDE_LISTS = [
+  ['side', 'slideSides'],
+  ['backdrop', 'slideBackdrops'],
+  ['cursorEffect', 'slideCursors'],
+  ['particles', 'slideParticles'],
+] as const
 
 function slidesToStored(slides: SlideSpec[]): StoredSlides {
   const stored: StoredSlides = {
@@ -142,16 +165,17 @@ function slidesToStored(slides: SlideSpec[]): StoredSlides {
     slideRegions: slides.map((slide) => slide.focus.regions.join(',')),
     slideCircuits: slides.map((slide) => slide.focus.circuits.join(',')),
   }
-  if (slides.some((slide) => slide.side === 'left')) {
-    stored.slideSides = slides.map((slide) => (slide.side === 'left' ? 'left' : ''))
+  for (const [field, list] of OPTIONAL_SLIDE_LISTS) {
+    if (slides.some((slide) => slide[field])) stored[list] = slides.map((slide) => slide[field] ?? '')
   }
   return stored
 }
 
 function slidesFromStored(raw: Record<string, unknown>): SlideSpec[] | null {
-  const { slideIds, slideTitles, slideRegions, slideCircuits, slideSides } = raw
+  const { slideIds, slideTitles, slideRegions, slideCircuits } = raw
   if (![slideIds, slideTitles, slideRegions, slideCircuits].every(Array.isArray)) return null
-  const sides = Array.isArray(slideSides) ? (slideSides as unknown[]) : []
+  const optional = (list: string) => (Array.isArray(raw[list]) ? (raw[list] as unknown[]) : [])
+  const [sides, backdrops, cursors, particles] = OPTIONAL_SLIDE_LISTS.map(([, list]) => optional(list))
   const ids = slideIds as unknown[]
   return ids.map((id, i) => {
     const slide: SlideSpec = {
@@ -165,6 +189,9 @@ function slidesFromStored(raw: Record<string, unknown>): SlideSpec[] | null {
       },
     }
     if (sides[i] === 'left') slide.side = 'left'
+    if ((BACKDROP_THEMES as readonly unknown[]).includes(backdrops[i])) slide.backdrop = backdrops[i] as BackdropTheme
+    if (CURSOR_EFFECTS.includes(cursors[i] as string)) slide.cursorEffect = cursors[i] as SlideSpec['cursorEffect']
+    if (PARTICLE_STYLES.includes(particles[i] as string)) slide.particles = particles[i] as SlideSpec['particles']
     return slide
   })
 }
@@ -297,6 +324,17 @@ export function sameData(a: unknown, b: unknown): boolean {
   const keys = Object.keys(a).filter((key) => a[key] !== undefined)
   const otherKeys = Object.keys(b).filter((key) => b[key] !== undefined)
   return keys.length === otherKeys.length && keys.every((key) => sameData(a[key], b[key]))
+}
+
+/**
+ * The ids in `ids`, put in the order `wanted` gives them. Ids `wanted` leaves out (say, a section
+ * someone else just added) keep their order after the rest.
+ */
+export function arrangeLike(ids: string[], wanted: string[]): string[] {
+  const present = new Set(ids)
+  const first = wanted.filter((id, i) => present.has(id) && wanted.indexOf(id) === i)
+  const placed = new Set(first)
+  return [...first, ...ids.filter((id) => !placed.has(id))]
 }
 
 export function encodeSnapshot(snapshot: DeckSnapshot): string {

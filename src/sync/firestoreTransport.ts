@@ -11,6 +11,7 @@ import {
   onSnapshot,
   orderBy,
   query,
+  runTransaction,
   serverTimestamp,
   writeBatch,
   setDoc,
@@ -23,6 +24,7 @@ import {
 import { SyncError, type IndexChange, type PartWrite, type SyncTransport } from './engine'
 import {
   SCHEMA_VERSION,
+  arrangeLike,
   decodeSnapshot,
   encodeSnapshot,
   partDocument,
@@ -42,6 +44,7 @@ const collectionFor = (kind: PartKind) => (kind === 'section' ? 'sections' : 'bo
 const REFUSED = new Set(['permission-denied', 'failed-precondition', 'unauthenticated', 'invalid-argument', 'already-exists'])
 
 function toSyncError(error: unknown): SyncError {
+  if (error instanceof SyncError) return error
   const code = (error as { code?: string }).code ?? ''
   const message = error instanceof Error ? error.message : String(error)
   return new SyncError(REFUSED.has(code) ? 'refused' : 'retry', message)
@@ -158,6 +161,22 @@ export function createFirestoreTransport(db: Firestore, deckId: string, uid: () 
       }
       if (Object.keys(removals).length) await guarded(updateDoc(indexRef, { ...removals, ...stamp(by) }))
       if (Object.keys(additions).length) await guarded(updateDoc(indexRef, { ...additions, ...stamp(by) }))
+    },
+
+    async reorderSections(order) {
+      const by = editor()
+      // Read and write together, so a section someone adds meanwhile is never dropped.
+      return guarded(
+        runTransaction(db, async (tx) => {
+          const snapshot = await tx.get(indexRef)
+          if (!snapshot.exists()) throw new SyncError('refused', 'There is no deck to reorder.')
+          const index = readIndex(snapshot.data())
+          const sectionOrder = arrangeLike(index.sectionOrder, order)
+          if (sectionOrder.every((id, i) => id === index.sectionOrder[i])) return index.revision
+          tx.update(indexRef, { sectionOrder, ...stamp(by) })
+          return index.revision + 1
+        }),
+      )
     },
 
     async saveSnapshot(seq, snapshot, deckRevision) {

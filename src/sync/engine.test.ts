@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SyncEngine, SyncError, type IndexChange, type LocalDeck, type PartWrite, type SyncTransport } from './engine'
 import {
   SNAPSHOT_INTERVAL_MS,
+  arrangeLike,
   partKey,
   type BoxData,
   type DeckIndex,
@@ -109,6 +110,12 @@ class FakeServer {
           sectionOrder: union(index.sectionOrder, change.addSections, change.removeSections),
           boxIds: union(index.boxIds, change.addBoxes, change.removeBoxes),
         })
+      },
+      reorderSections: async (order) => {
+        if (this.offline) throw new SyncError('retry', 'offline')
+        const index = this.index!
+        this.setIndex({ ...index, revision: index.revision + 1, sectionOrder: arrangeLike(index.sectionOrder, order) })
+        return index.revision + 1
       },
       saveSnapshot: async (seq, snapshot) => {
         const index = this.index!
@@ -572,6 +579,66 @@ describe('live updates from others', () => {
     server.setIndex({ ...server.index!, boxIds: ['b1'] })
     await settle()
     expect(deck.boxes.has('b2')).toBe(false)
+  })
+})
+
+describe('reordering sections', () => {
+  /** A server with three sections, in the order A, B, C. */
+  function seedThree() {
+    server.put('section', 'secB', section('B'))
+    server.put('section', 'secC', section('C'))
+    server.setIndex({ ...server.index!, revision: 2, sectionOrder: ['sec1', 'secB', 'secC'] })
+  }
+
+  it('saves a new order, and the other device follows it', async () => {
+    seedThree()
+    const one = await device()
+    const two = await device()
+    one.deck.orderSections(['secC', 'sec1', 'secB'])
+    one.engine.sectionsReordered(one.deck.ids().sectionOrder)
+    await settle()
+    expect(server.index!.sectionOrder).toEqual(['secC', 'sec1', 'secB'])
+    expect(two.deck.ids().sectionOrder).toEqual(['secC', 'sec1', 'secB'])
+    expect(one.deck.ids().sectionOrder).toEqual(['secC', 'sec1', 'secB'])
+    expect(one.engine.state().saving).toBe(false)
+  })
+
+  it('keeps the new order on screen while offline, and saves it once back', async () => {
+    seedThree()
+    const { deck, engine } = await device()
+    server.offline = true
+    deck.orderSections(['secB', 'secC', 'sec1'])
+    engine.sectionsReordered(deck.ids().sectionOrder)
+    // Someone else's change to the index must not put the old order back meanwhile.
+    server.setIndex({ ...server.index!, revision: server.index!.revision + 1 })
+    await settle()
+    expect(deck.ids().sectionOrder).toEqual(['secB', 'secC', 'sec1'])
+    expect(engine.state().saving).toBe(true)
+    server.offline = false
+    await settle(6000)
+    expect(server.index!.sectionOrder).toEqual(['secB', 'secC', 'sec1'])
+    expect(engine.state().saving).toBe(false)
+  })
+
+  it('keeps a section someone else added while reordering', async () => {
+    seedThree()
+    const { deck, engine } = await device()
+    server.put('section', 'secD', section('D'))
+    server.setIndex({ ...server.index!, revision: server.index!.revision + 1, sectionOrder: [...server.index!.sectionOrder, 'secD'] })
+    engine.sectionsReordered(['secC', 'secB', 'sec1'])
+    await settle()
+    expect(server.index!.sectionOrder).toEqual(['secC', 'secB', 'sec1', 'secD'])
+    expect(deck.ids().sectionOrder).toEqual(['secC', 'secB', 'sec1', 'secD'])
+  })
+
+  it('then follows a reorder made by someone else', async () => {
+    seedThree()
+    const one = await device()
+    one.engine.sectionsReordered(['secB', 'sec1', 'secC'])
+    await settle()
+    server.setIndex({ ...server.index!, revision: server.index!.revision + 1, sectionOrder: ['secC', 'secB', 'sec1'] })
+    await settle()
+    expect(one.deck.ids().sectionOrder).toEqual(['secC', 'secB', 'sec1'])
   })
 })
 

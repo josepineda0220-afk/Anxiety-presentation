@@ -1,15 +1,16 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
 import {
   DEFAULT_BRAIN_SIDE,
-  DEFAULT_CURSOR_EFFECT,
-  DEFAULT_PARTICLE_STYLE,
+  slideLook,
   type BackdropTheme,
   type BrainSide,
   type CursorEffect,
   type ParticleStyle,
+  type Section,
 } from '../data/sections'
+import { sameData } from '../sync/schema'
 import { useSyncLabel, useSyncStatus, type SyncStatus } from '../sync/syncStatus'
 import { shownTextFormat, useDeck, type BoxLook, type TextColor, type TextStyle } from './deckStore'
 import { useDeckKeys } from './keys'
@@ -191,8 +192,6 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
   const selected = useDeck((s) => s.boxes.find((box) => box.id === s.selectedId))
   const editingId = useDeck((s) => s.editingId)
   const [collapsed, setCollapsed] = useCollapsed()
-  // The kind of pointer that pressed a section tab: a tap on the open tab renames it on a touch screen.
-  const tabPointer = useRef('mouse')
   const format = useDeck((s) => s.format)
   const textStyle = useDeck((s) => shownTextFormat(s, 'style'))
   const textColor = useDeck((s) => shownTextFormat(s, 'color'))
@@ -202,6 +201,11 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
   const currentSlide = activeSection?.slides.find((sl) => sl.id === slide)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [draftTitle, setDraftTitle] = useState('')
+
+  const look = activeSection && slideLook(activeSection, currentSlide)
+  // "Use on whole section" has nothing to do when every slide already looks like this one.
+  const lookMatchesSection =
+    !activeSection || activeSection.slides.every((sl) => sameData(slideLook(activeSection, sl), look))
 
   // With a box selected the box controls show and change that box. Otherwise they set up the next one.
   const shown = selected ?? format
@@ -292,13 +296,13 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
         >
           <button
             type="button"
-            className="tool-action"
+            className="tool-fold"
             title="Show all the tools"
             aria-expanded={false}
             onClick={() => setCollapsed(false)}
           >
             <Icon d="M4 10l4-4 4 4" />
-            Tools
+            Show tools
           </button>
           {activeSection && (
             <div className="tool-group" aria-label="Slide">
@@ -331,21 +335,31 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
 
   return (
     <div className="toolbar-dock">
-      <motion.p
-        className="toolbar-hint"
+      <motion.div
+        className="toolbar-top"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         transition={{ duration: 0.2 }}
       >
-        Drag a box to move it · Drag its handles to resize · Double-click a box, or tap it again, to edit its text · Size and
-        colour apply to selected words, or to what you type next · Fold the tools away with the arrow
-      </motion.p>
+        <p className="toolbar-hint">Drag to move boxes or reorder sections · Double-click or tap twice to edit · Use on touchscreen!</p>
+        <button
+          type="button"
+          className="tool-fold"
+          title="Hide the tools to see more of the slide"
+          aria-expanded
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => setCollapsed(true)}
+        >
+          <Icon d="M4 6l4 4 4-4" />
+          Hide tools
+        </button>
+      </motion.div>
 
       <motion.div
         className="toolbar section-toolbar"
         role="toolbar"
-        aria-label="Sections and background"
+        aria-label="Sections"
         initial={{ opacity: 0, y: 14 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 14 }}
@@ -354,53 +368,16 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
           if (!(event.target instanceof HTMLInputElement)) event.preventDefault()
         }}
       >
-        <div className="tool-group section-tabs" aria-label="Sections">
-          <span className="tool-label">Section</span>
-          {sections.map((sec, index) => {
-            const isActive = sec.id === activeSection?.id
-            if (renamingId === sec.id) {
-              return (
-                <input
-                  key={sec.id}
-                  className="section-rename-input"
-                  value={draftTitle}
-                  autoFocus
-                  onFocus={(e) => e.currentTarget.select()}
-                  onChange={(e) => setDraftTitle(e.target.value)}
-                  onBlur={commitRename}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') commitRename()
-                    else if (e.key === 'Escape') setRenamingId(null)
-                  }}
-                />
-              )
-            }
-            return (
-              <button
-                key={sec.id}
-                type="button"
-                className="tool-section"
-                aria-pressed={isActive}
-                title={`${index + 1}. ${sec.title} (double-click, or tap again, to rename)`}
-                onPointerDown={(event) => {
-                  tabPointer.current = event.pointerType
-                }}
-                onClick={() => {
-                  if (isActive && tabPointer.current !== 'mouse') startRename(sec.id, sec.title)
-                  else goToSection(sec.id)
-                }}
-                onDoubleClick={() => {
-                  if (tabPointer.current === 'mouse') startRename(sec.id, sec.title)
-                }}
-              >
-                <span className="section-theme-dot" data-backdrop={sec.backdrop} />
-                <span>
-                  {index + 1}. {sec.title}
-                </span>
-              </button>
-            )
-          })}
-        </div>
+        <SectionTabs
+          sections={sections}
+          activeId={activeSection?.id}
+          renamingId={renamingId}
+          draftTitle={draftTitle}
+          onDraftTitle={setDraftTitle}
+          onStartRename={startRename}
+          onCommitRename={commitRename}
+          onCancelRename={() => setRenamingId(null)}
+        />
 
         <span className="tool-sep" />
 
@@ -430,80 +407,17 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
             Remove
           </button>
         </div>
-
-        <span className="tool-sep" />
-
-        {activeSection && (
-          <div className="tool-group" role="radiogroup" aria-label="Section background">
-            <span className="tool-label">Backdrop</span>
-            {BACKDROPS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                role="radio"
-                aria-checked={activeSection.backdrop === option.value}
-                className="tool-backdrop"
-                title={`Set "${activeSection.title}" background to ${option.label}`}
-                onClick={() => deck.setSectionBackdrop(activeSection.id, option.value)}
-              >
-                <span className="swatch backdrop-swatch" data-backdrop={option.value} />
-                {option.label}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {activeSection && (
-          <>
-            <span className="tool-sep" />
-            <div className="tool-group" role="radiogroup" aria-label="Section cursor effect">
-              <span className="tool-label">Cursor</span>
-              {CURSOR_EFFECTS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={(activeSection.cursorEffect ?? DEFAULT_CURSOR_EFFECT) === option.value}
-                  className="tool-backdrop"
-                  title={`In "${activeSection.title}", ${option.hint}`}
-                  onClick={() => deck.setSectionCursorEffect(activeSection.id, option.value)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-            <span className="tool-sep" />
-            <div className="tool-group" role="radiogroup" aria-label="Section particles">
-              <span className="tool-label">Dots</span>
-              {PARTICLES.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={(activeSection.particles ?? DEFAULT_PARTICLE_STYLE) === option.value}
-                  className="tool-backdrop"
-                  title={`In "${activeSection.title}", ${option.hint}`}
-                  onClick={() => deck.setSectionParticles(activeSection.id, option.value)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
       </motion.div>
 
       <motion.div
-        className="toolbar"
+        className="toolbar slide-toolbar"
         role="toolbar"
-        aria-label="Input mode"
+        aria-label="This slide"
         data-keeps-typing
         initial={{ opacity: 0, y: 14 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 14 }}
-        transition={{ duration: 0.22, ease: 'easeOut' }}
-        // A click here must not pull focus out of a box that is being typed in. A tap can, so the box
-        // is told to keep typing and take focus back.
+        transition={{ duration: 0.21, ease: 'easeOut' }}
         onPointerDownCapture={noteToolbarPress}
         onMouseDown={(event) => event.preventDefault()}
       >
@@ -544,7 +458,7 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
           </div>
         )}
 
-        {currentSlide && (
+        {activeSection && currentSlide && look && (
           <>
             <span className="tool-sep" />
             <div className="tool-group" role="radiogroup" aria-label="Brain side on this slide">
@@ -562,11 +476,93 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
                 </button>
               ))}
             </div>
+
+            <span className="tool-sep" />
+            <div className="tool-group" role="radiogroup" aria-label="Background on this slide">
+              <span className="tool-label">Backdrop</span>
+              {BACKDROPS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={look.backdrop === option.value}
+                  className="tool-swatch"
+                  aria-label={option.label}
+                  title={`${option.label} background on this slide`}
+                  onClick={() => deck.setSlideLook(currentSlide.id, { backdrop: option.value })}
+                >
+                  <span className="swatch backdrop-swatch" data-backdrop={option.value} />
+                </button>
+              ))}
+            </div>
+
+            <span className="tool-sep" />
+            <div className="tool-group" role="radiogroup" aria-label="Cursor effect on this slide">
+              <span className="tool-label">Cursor</span>
+              {CURSOR_EFFECTS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={look.cursorEffect === option.value}
+                  title={`On this slide, ${option.hint}`}
+                  onClick={() => deck.setSlideLook(currentSlide.id, { cursorEffect: option.value })}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+
+            <span className="tool-sep" />
+            <div className="tool-group" role="radiogroup" aria-label="Dots on this slide">
+              <span className="tool-label">Dots</span>
+              {PARTICLES.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={look.particles === option.value}
+                  title={`On this slide, ${option.hint}`}
+                  onClick={() => deck.setSlideLook(currentSlide.id, { particles: option.value })}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+
+            <span className="tool-sep" />
+            <button
+              type="button"
+              className="tool-action"
+              disabled={lookMatchesSection}
+              title={
+                lookMatchesSection
+                  ? 'Every slide in this section already looks like this one'
+                  : `Give every slide in "${activeSection.title}" this slide's backdrop, cursor and dots`
+              }
+              onClick={() => deck.applySlideLookToSection(currentSlide.id)}
+            >
+              <Icon d="M2.5 4.5h7v7h-7z M6.5 2.5h7v7" />
+              All slides
+            </button>
           </>
         )}
+      </motion.div>
 
-        <span className="tool-sep" />
-
+      <motion.div
+        className="toolbar"
+        role="toolbar"
+        aria-label="Text"
+        data-keeps-typing
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 14 }}
+        transition={{ duration: 0.22, ease: 'easeOut' }}
+        // A click here must not pull focus out of a box that is being typed in. A tap can, so the box
+        // is told to keep typing and take focus back.
+        onPointerDownCapture={noteToolbarPress}
+        onMouseDown={(event) => event.preventDefault()}
+      >
         <button type="button" className="tool-add" onClick={addBox}>
           <Icon d="M8 3v10 M3 8h10" />
           Text box
@@ -639,21 +635,170 @@ function Toolbar({ onShowHistory }: { onShowHistory: () => void }) {
           <Icon d="M4.5 7V5.2a3.5 3.5 0 0 1 7 0V7 M3.5 7h9v6.5h-9z" />
         </button>
 
-        <button
-          type="button"
-          className="tool-icon"
-          title="Fold the tools away"
-          aria-label="Fold the tools away"
-          aria-expanded
-          onClick={() => setCollapsed(true)}
-        >
-          <Icon d="M4 6l4 4 4-4" />
-        </button>
-
         <button type="button" className="tool-done" title="Leave input mode (Esc)" onClick={() => deck.setInputMode(false)}>
           Done
         </button>
       </motion.div>
+    </div>
+  )
+}
+
+interface SectionTabsProps {
+  sections: Section[]
+  activeId: string | undefined
+  renamingId: string | null
+  draftTitle: string
+  onDraftTitle: (title: string) => void
+  onStartRename: (id: string, title: string) => void
+  onCommitRename: () => void
+  onCancelRename: () => void
+}
+
+/** How far a press must move, in pixels, before it drags a tab instead of tapping it. */
+const DRAG_START = { mouse: 5, touch: 10 }
+
+/** Where a dragged tab would land: before or after the tab nearest the pointer. */
+function dropIndex(tabs: { id: string; rect: DOMRect }[], x: number, y: number): number {
+  let best = 0
+  let bestDistance = Infinity
+  tabs.forEach(({ rect }, i) => {
+    const dx = x - (rect.left + rect.width / 2)
+    // Rows are what matter most when the tabs wrap onto more than one line.
+    const dy = (y - (rect.top + rect.height / 2)) * 3
+    const distance = dx * dx + dy * dy
+    if (distance < bestDistance) {
+      bestDistance = distance
+      best = x > rect.left + rect.width / 2 ? i + 1 : i
+    }
+  })
+  return best
+}
+
+/**
+ * The section tabs. A click or tap opens a section; double-clicking (or tapping the open one again)
+ * renames it; dragging one, with a mouse or a finger, moves it. Alt with an arrow key moves the
+ * focused tab too.
+ */
+function SectionTabs({
+  sections,
+  activeId,
+  renamingId,
+  draftTitle,
+  onDraftTitle,
+  onStartRename,
+  onCommitRename,
+  onCancelRename,
+}: SectionTabsProps) {
+  // The kind of pointer that pressed a tab: a tap on the open tab renames it on a touch screen.
+  const tabPointer = useRef('mouse')
+  const press = useRef<{ id: string; x: number; y: number; pointerId: number } | null>(null)
+  const tabEls = useRef(new Map<string, HTMLElement>())
+  /** Set when a drag ends, so the click that follows it does not also open the section. */
+  const dragged = useRef(false)
+  const [drag, setDrag] = useState<{ id: string; order: string[] } | null>(null)
+
+  const byId = new Map(sections.map((sec) => [sec.id, sec]))
+  const shown = drag
+    ? drag.order.map((id) => byId.get(id)).filter((sec): sec is Section => sec !== undefined)
+    : sections
+
+  const onPointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const start = press.current
+    if (!start || start.pointerId !== event.pointerId) return
+    if (!drag) {
+      const limit = event.pointerType === 'mouse' ? DRAG_START.mouse : DRAG_START.touch
+      if (Math.hypot(event.clientX - start.x, event.clientY - start.y) < limit) return
+      event.currentTarget.setPointerCapture(event.pointerId)
+    }
+    const order = drag?.order ?? sections.map((sec) => sec.id)
+    const others = order.filter((id) => id !== start.id)
+    const rects = others.flatMap((id) => {
+      const el = tabEls.current.get(id)
+      return el ? [{ id, rect: el.getBoundingClientRect() }] : []
+    })
+    const at = dropIndex(rects, event.clientX, event.clientY)
+    const next = [...others.slice(0, at), start.id, ...others.slice(at)]
+    if (!drag || next.some((id, i) => id !== drag.order[i])) setDrag({ id: start.id, order: next })
+  }
+
+  const endPress = (event: ReactPointerEvent<HTMLButtonElement>, keep: boolean) => {
+    const start = press.current
+    if (!start || start.pointerId !== event.pointerId) return
+    press.current = null
+    if (!drag) return
+    dragged.current = true
+    if (keep) useDeck.getState().moveSection(drag.id, drag.order.indexOf(drag.id))
+    setDrag(null)
+  }
+
+  return (
+    <div className="tool-group section-tabs" aria-label="Sections">
+      <span className="tool-label">Section</span>
+      {shown.map((sec, index) => {
+        const isActive = sec.id === activeId
+        if (renamingId === sec.id) {
+          return (
+            <input
+              key={sec.id}
+              className="section-rename-input"
+              value={draftTitle}
+              autoFocus
+              onFocus={(e) => e.currentTarget.select()}
+              onChange={(e) => onDraftTitle(e.target.value)}
+              onBlur={onCommitRename}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') onCommitRename()
+                else if (e.key === 'Escape') onCancelRename()
+              }}
+            />
+          )
+        }
+        return (
+          <motion.button
+            key={sec.id}
+            layout="position"
+            transition={{ type: 'spring', stiffness: 600, damping: 40 }}
+            ref={(el) => {
+              if (el) tabEls.current.set(sec.id, el)
+              else tabEls.current.delete(sec.id)
+            }}
+            type="button"
+            className="tool-section"
+            aria-pressed={isActive}
+            data-dragging={drag?.id === sec.id || undefined}
+            title={`${index + 1}. ${sec.title}. Drag to reorder; double-click, or tap again, to rename`}
+            onPointerDown={(event) => {
+              tabPointer.current = event.pointerType
+              dragged.current = false
+              if (event.button === 0) press.current = { id: sec.id, x: event.clientX, y: event.clientY, pointerId: event.pointerId }
+            }}
+            onPointerMove={onPointerMove}
+            onPointerUp={(event) => endPress(event, true)}
+            onPointerCancel={(event) => endPress(event, false)}
+            onClick={() => {
+              if (dragged.current) {
+                dragged.current = false
+                return
+              }
+              if (isActive && tabPointer.current !== 'mouse') onStartRename(sec.id, sec.title)
+              else goToSection(sec.id)
+            }}
+            onDoubleClick={() => {
+              if (tabPointer.current === 'mouse') onStartRename(sec.id, sec.title)
+            }}
+            onKeyDown={(event) => {
+              if (!event.altKey || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return
+              event.preventDefault()
+              useDeck.getState().moveSection(sec.id, index + (event.key === 'ArrowLeft' ? -1 : 1))
+            }}
+          >
+            <span className="section-theme-dot" data-backdrop={sec.backdrop} />
+            <span>
+              {index + 1}. {sec.title}
+            </span>
+          </motion.button>
+        )
+      })}
     </div>
   )
 }

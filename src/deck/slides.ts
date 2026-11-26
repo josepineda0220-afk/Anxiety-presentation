@@ -1,8 +1,7 @@
 import { MEDICATION_SLIDES } from '../data/medications'
 import {
   DEFAULT_BRAIN_SIDE,
-  DEFAULT_CURSOR_EFFECT,
-  DEFAULT_PARTICLE_STYLE,
+  slideLook,
   type BackdropTheme,
   type CursorEffect,
   type ParticleStyle,
@@ -29,9 +28,7 @@ export function getAllSlides(sections: Section[] = useDeck.getState().sections):
       ...slide,
       sectionId: section.id,
       sectionTitle: section.title,
-      backdrop: section.backdrop,
-      cursorEffect: section.cursorEffect ?? DEFAULT_CURSOR_EFFECT,
-      particles: section.particles ?? DEFAULT_PARTICLE_STYLE,
+      ...slideLook(section, slide),
     })),
   )
 }

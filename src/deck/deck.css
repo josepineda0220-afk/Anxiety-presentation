@@ -349,12 +349,60 @@
   pointer-events: none;
 }
 
+.toolbar-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 12px;
+}
+
 .toolbar-hint {
   margin: 0;
   color: var(--ink-soft);
   font: 400 12px/1.4 'Inter Variable', system-ui, sans-serif;
   text-align: center;
   text-shadow: 0 1px 8px rgb(0 0 0 / 70%);
+}
+
+/* The labelled button that folds the tools away and brings them back. */
+.tool-fold,
+.toolbar button.tool-fold {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px 0 9px;
+  border: 1px solid rgb(255 255 255 / 28%);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink-white);
+  font: 600 12px/1 'Inter Variable', system-ui, sans-serif;
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.tool-fold:hover,
+.toolbar button.tool-fold:hover:not(:disabled) {
+  border-color: rgb(255 255 255 / 50%);
+  background: rgb(255 255 255 / 14%);
+}
+
+.tool-fold:focus-visible {
+  outline: 2px solid var(--select);
+  outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+  .tool-fold,
+  .toolbar button.tool-fold {
+    height: 40px;
+    padding: 0 16px 0 12px;
+  }
 }
 
 .toolbar {
@@ -379,6 +427,19 @@
   padding: 0 10px;
   font-size: 12px;
   white-space: nowrap;
+  /* A finger drags the tab instead of panning the page. */
+  touch-action: none;
+  cursor: grab;
+}
+
+.toolbar .tool-section[data-dragging] {
+  position: relative;
+  z-index: 1;
+  background: rgb(255 255 255 / 24%);
+  box-shadow:
+    0 6px 18px rgb(0 0 0 / 45%),
+    0 0 0 1.5px var(--select);
+  cursor: grabbing;
 }
 
 .section-theme-dot {
